@@ -1,30 +1,26 @@
 package simpledb.storage;
 
-import simpledb.common.Type;
-
 import java.io.Serializable;
 import java.util.*;
+import simpledb.common.Type;
 
 /**
  * TupleDesc describes the schema of a tuple.
  */
 public class TupleDesc implements Serializable {
 
-    /**
-     * A help class to facilitate organizing the information of each field
-     * */
+    private List<String> fieldNamesList;
+    private List<Type> typesList;
+
+    /*** A help class to facilitate organizing the information of each field * */
     public static class TDItem implements Serializable {
 
         private static final long serialVersionUID = 1L;
 
-        /**
-         * The type of the field
-         * */
+        /*** The type of the field * */
         public final Type fieldType;
-        
-        /**
-         * The name of the field
-         * */
+
+        /*** The name of the field * */
         public final String fieldName;
 
         public TDItem(Type t, String n) {
@@ -32,6 +28,7 @@ public class TupleDesc implements Serializable {
             this.fieldType = t;
         }
 
+        @Override
         public String toString() {
             return fieldName + "(" + fieldType + ")";
         }
@@ -39,12 +36,17 @@ public class TupleDesc implements Serializable {
 
     /**
      * @return
-     *        An iterator which iterates over all the field TDItems
-     *        that are included in this TupleDesc
-     * */
+     *         An iterator which iterates over all the field TDItems
+     *         that are included in this TupleDesc
+     */
     public Iterator<TDItem> iterator() {
         // some code goes here
-        return null;
+        List<TDItem> l = new ArrayList<>();
+        for (int i = 0; i < typesList.size(); i++) {
+            l.add(new TDItem(typesList.get(i), fieldNamesList.get(i)));
+        }
+        Iterator<TDItem> iterator = l.iterator();
+        return iterator;
     }
 
     private static final long serialVersionUID = 1L;
@@ -54,14 +56,17 @@ public class TupleDesc implements Serializable {
      * specified types, with associated named fields.
      * 
      * @param typeAr
-     *            array specifying the number of and types of fields in this
-     *            TupleDesc. It must contain at least one entry.
+     *                array specifying the number of and types of fields in this
+     *                TupleDesc. It must contain at least one entry.
      * @param fieldAr
-     *            array specifying the names of the fields. Note that names may
-     *            be null.
+     *                array specifying the names of the fields. Note that names may
+     *                be null.
      */
-    public TupleDesc(Type[] typeAr, String[] fieldAr) {
+    public TupleDesc(Type[] typeAr, String[] fieldAr) { // field is a column, fieldAr is the array holding names of
+                                                        // columns
         // some code goes here
+        fieldNamesList = Arrays.asList(fieldAr);
+        typesList = Arrays.asList(typeAr);
     }
 
     /**
@@ -69,11 +74,16 @@ public class TupleDesc implements Serializable {
      * fields of the specified types, with anonymous (unnamed) fields.
      * 
      * @param typeAr
-     *            array specifying the number of and types of fields in this
-     *            TupleDesc. It must contain at least one entry.
+     *               array specifying the number of and types of fields in this
+     *               TupleDesc. It must contain at least one entry.
      */
     public TupleDesc(Type[] typeAr) {
         // some code goes here
+        typesList = Arrays.asList(typeAr);
+        fieldNamesList = new ArrayList<>();
+        for (Type t : typesList) {
+            fieldNamesList.add(null);
+        }
     }
 
     /**
@@ -81,50 +91,50 @@ public class TupleDesc implements Serializable {
      */
     public int numFields() {
         // some code goes here
-        return 0;
+        return this.fieldNamesList.size();
     }
 
     /**
      * Gets the (possibly null) field name of the ith field of this TupleDesc.
      * 
      * @param i
-     *            index of the field name to return. It must be a valid index.
+     *          index of the field name to return. It must be a valid index.
      * @return the name of the ith field
      * @throws NoSuchElementException
-     *             if i is not a valid field reference.
+     *                                if i is not a valid field reference.
      */
     public String getFieldName(int i) throws NoSuchElementException {
         // some code goes here
-        return null;
+        return this.fieldNamesList.get(i);
     }
 
     /**
      * Gets the type of the ith field of this TupleDesc.
      * 
      * @param i
-     *            The index of the field to get the type of. It must be a valid
-     *            index.
+     *          The index of the field to get the type of. It must be a valid
+     *          index.
      * @return the type of the ith field
      * @throws NoSuchElementException
-     *             if i is not a valid field reference.
+     *                                if i is not a valid field reference.
      */
     public Type getFieldType(int i) throws NoSuchElementException {
         // some code goes here
-        return null;
+        return this.typesList.get(i);
     }
 
     /**
      * Find the index of the field with a given name.
      * 
      * @param name
-     *            name of the field.
+     *             name of the field.
      * @return the index of the field that is first to have the given name.
      * @throws NoSuchElementException
-     *             if no field with a matching name is found.
+     *                                if no field with a matching name is found.
      */
     public int fieldNameToIndex(String name) throws NoSuchElementException {
         // some code goes here
-        return 0;
+        return this.fieldNamesList.indexOf(name);
     }
 
     /**
@@ -133,7 +143,11 @@ public class TupleDesc implements Serializable {
      */
     public int getSize() {
         // some code goes here
-        return 0;
+        int totalSize = 0;
+        for (Type t : this.typesList) {
+            totalSize += t.getLen();
+        }
+        return totalSize;
     }
 
     /**
@@ -148,7 +162,16 @@ public class TupleDesc implements Serializable {
      */
     public static TupleDesc merge(TupleDesc td1, TupleDesc td2) {
         // some code goes here
-        return null;
+        List<Type> newTypesList = new ArrayList<>();
+        List<String> newFieldNamesList = new ArrayList<>();
+
+        newTypesList.addAll(td1.typesList);
+        newTypesList.addAll(td2.typesList);
+
+        newFieldNamesList.addAll(td1.fieldNamesList);
+        newFieldNamesList.addAll(td2.fieldNamesList);
+
+        return new TupleDesc((Type[]) newTypesList.toArray(), (String[]) newFieldNamesList.toArray());
     }
 
     /**
@@ -158,15 +181,36 @@ public class TupleDesc implements Serializable {
      * for every i.
      * 
      * @param o
-     *            the Object to be compared for equality with this TupleDesc.
+     *          the Object to be compared for equality with this TupleDesc.
      * @return true if the object is equal to this TupleDesc.
      */
 
+    @Override
     public boolean equals(Object o) {
         // some code goes here
-        return false;
+
+        // check if o is an instance of TupleDesc class
+        if (!(o instanceof TupleDesc)) {
+            return false;
+        }
+        TupleDesc other = (TupleDesc) o;
+        // check if items are same sizes
+        if (other.typesList.size() == this.typesList.size()
+                || other.numFields() != this.numFields()) {
+            return false;
+        }
+        for (int i = 0; i < other.numFields(); i++) {
+            // check if ith-items are the same
+            if (other.typesList.get(i) != this.typesList.get(i)
+                    || !(other.fieldNamesList.get(i)).equals(this.fieldNamesList.get(i))) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
+    @Override
     public int hashCode() {
         // If you want to use TupleDesc as keys for HashMap, implement this so
         // that equal objects have equals hashCode() results
@@ -180,8 +224,13 @@ public class TupleDesc implements Serializable {
      * 
      * @return String describing this descriptor.
      */
+    @Override
     public String toString() {
         // some code goes here
-        return "";
+        String s = "";
+        for (int i = 0; i < typesList.size(); i++) {
+            s += typesList.get(i) + "(" + fieldNamesList.get(i) + ")";
+        }
+        return s;
     }
 }
