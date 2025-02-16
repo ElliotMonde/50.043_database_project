@@ -14,7 +14,7 @@ public class Tuple implements Serializable {
     private TupleDesc td;
     private RecordId recordId;
     private List<Field> entries; // Contains all items within a tuple
-  
+
     /**
      * Create a new tuple with the specified schema (type).
      *
@@ -27,6 +27,7 @@ public class Tuple implements Serializable {
         this.entries = new ArrayList<>(td.getSize());
         this.td = td;
         this.recordId = null;
+
     }
 
     /**
@@ -35,6 +36,7 @@ public class Tuple implements Serializable {
     public TupleDesc getTupleDesc() {
         // some code goes here
         return this.td;
+        // return null;
     }
 
     /**
@@ -43,6 +45,7 @@ public class Tuple implements Serializable {
      */
     public RecordId getRecordId() {
         // some code goes here
+        // return null;
         return this.recordId;
     }
 
@@ -65,7 +68,6 @@ public class Tuple implements Serializable {
      * @param f
      *          new value for the field.
      */
-        // some code goes here
     public void setField(int i, Field f){
         if (i < this.td.getSize()) {
             this.entries.set(i, f);
@@ -78,7 +80,7 @@ public class Tuple implements Serializable {
      * @param i
      *          field index to return. Must be a valid index.
      */
-        // some code goes here
+    public Field getField(int i) {
         if (i < this.td.getSize()) {
             return this.entries.get(i);
         }
@@ -95,7 +97,6 @@ public class Tuple implements Serializable {
      */
     @Override
     public String toString() {
-        // some code goes here
         String result = "";
         for (Field entry : entries) {
             result += entry.toString();
@@ -114,7 +115,6 @@ public class Tuple implements Serializable {
 
     /**
      * reset the TupleDesc of this tuple (only affecting the TupleDesc)
-        // some code goes here
      */
     public void resetTupleDesc(TupleDesc td) {
         this.td = td;
