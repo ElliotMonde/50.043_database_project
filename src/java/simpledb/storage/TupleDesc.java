@@ -134,7 +134,11 @@ public class TupleDesc implements Serializable {
      */
     public int fieldNameToIndex(String name) throws NoSuchElementException {
         // some code goes here
-        return this.fieldNamesList.indexOf(name);
+        int ind = this.fieldNamesList.indexOf(name);
+        if (ind == -1) {
+            throw new NoSuchElementException();
+        }
+        return ind;
     }
 
     /**
@@ -171,7 +175,13 @@ public class TupleDesc implements Serializable {
         newFieldNamesList.addAll(td1.fieldNamesList);
         newFieldNamesList.addAll(td2.fieldNamesList);
 
-        return new TupleDesc((Type[]) newTypesList.toArray(), (String[]) newFieldNamesList.toArray());
+        Type[] newTypes = new Type[newTypesList.size()];
+        String[] newFieldNames = new String[newFieldNamesList.size()];
+        
+        newTypesList.toArray(newTypes);
+        newFieldNamesList.toArray(newFieldNames);
+
+        return new TupleDesc(newTypes, newFieldNames);
     }
 
     /**
@@ -189,20 +199,32 @@ public class TupleDesc implements Serializable {
     public boolean equals(Object o) {
         // some code goes here
 
+        if (Objects.isNull(o)) {
+            return false;
+        }
+
         // check if o is an instance of TupleDesc class
         if (!(o instanceof TupleDesc)) {
             return false;
         }
+
         TupleDesc other = (TupleDesc) o;
+
         // check if items are same sizes
-        if (other.typesList.size() == this.typesList.size()
+        if (other.typesList.size() != this.typesList.size()
                 || other.numFields() != this.numFields()) {
             return false;
         }
         for (int i = 0; i < other.numFields(); i++) {
             // check if ith-items are the same
-            if (other.typesList.get(i) != this.typesList.get(i)
-                    || !(other.fieldNamesList.get(i)).equals(this.fieldNamesList.get(i))) {
+            if (!other.typesList.get(i).equals(this.typesList.get(i))) {
+                return false;
+            }
+            if (other.fieldNamesList.get(i) == null && this.fieldNamesList.get(i) != null) {
+                return false;
+            }
+            if (fieldNamesList.get(i) != null
+                    && !other.fieldNamesList.get(i).equals(this.fieldNamesList.get(i))) {
                 return false;
             }
         }
