@@ -116,7 +116,7 @@ public class TupleDesc implements Serializable {
      *          index.
      * @return the type of the ith field
      * @throws NoSuchElementException
-     *                                if i is not a valid field reference.
+     *         if i is not a valid field reference.
      */
     public Type getFieldType(int i) throws NoSuchElementException {
         // some code goes here

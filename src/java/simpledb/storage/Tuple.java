@@ -24,7 +24,7 @@ public class Tuple implements Serializable {
      */
     public Tuple(TupleDesc td) {
         // some code goes here
-        this.entries = new ArrayList<>(td.getSize());
+        this.entries = new ArrayList<>(Collections.nCopies(td.numFields(), null));
         this.td = td;
         this.recordId = null;
 
@@ -69,7 +69,7 @@ public class Tuple implements Serializable {
      *          new value for the field.
      */
     public void setField(int i, Field f){
-        if (i < this.td.getSize()) {
+        if (i < this.entries.size()) {
             this.entries.set(i, f);
         }
     }
@@ -81,7 +81,7 @@ public class Tuple implements Serializable {
      *          field index to return. Must be a valid index.
      */
     public Field getField(int i) {
-        if (i < this.td.getSize()) {
+        if (i < this.td.numFields()) {
             return this.entries.get(i);
         }
         return null;
