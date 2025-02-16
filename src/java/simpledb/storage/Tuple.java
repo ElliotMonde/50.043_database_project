@@ -13,11 +13,8 @@ public class Tuple implements Serializable {
     private static final long serialVersionUID = 1L;
     private TupleDesc td;
     private RecordId recordId;
-<<<<<<< Updated upstream
-=======
     private List<Field> entries; // Contains all items within a tuple
-
->>>>>>> Stashed changes
+  
     /**
      * Create a new tuple with the specified schema (type).
      *
@@ -27,15 +24,9 @@ public class Tuple implements Serializable {
      */
     public Tuple(TupleDesc td) {
         // some code goes here
-<<<<<<< Updated upstream
-        this.td = td;
-        this.recordId = null;
-=======
         this.entries = new ArrayList<>(td.getSize());
         this.td = td;
         this.recordId = null;
-
->>>>>>> Stashed changes
     }
 
     /**
@@ -44,7 +35,6 @@ public class Tuple implements Serializable {
     public TupleDesc getTupleDesc() {
         // some code goes here
         return this.td;
-        // return null;
     }
 
     /**
@@ -53,7 +43,6 @@ public class Tuple implements Serializable {
      */
     public RecordId getRecordId() {
         // some code goes here
-        // return null;
         return this.recordId;
     }
 
@@ -76,15 +65,11 @@ public class Tuple implements Serializable {
      * @param f
      *          new value for the field.
      */
-<<<<<<< Updated upstream
-    public void setField(int i, Field f) {
         // some code goes here
-=======
     public void setField(int i, Field f){
         if (i < this.td.getSize()) {
             this.entries.set(i, f);
         }
->>>>>>> Stashed changes
     }
 
     /**
@@ -93,14 +78,10 @@ public class Tuple implements Serializable {
      * @param i
      *          field index to return. Must be a valid index.
      */
-    public Field getField(int i) {
-<<<<<<< Updated upstream
         // some code goes here
-=======
         if (i < this.td.getSize()) {
             return this.entries.get(i);
         }
->>>>>>> Stashed changes
         return null;
     }
 
@@ -114,47 +95,28 @@ public class Tuple implements Serializable {
      */
     @Override
     public String toString() {
-<<<<<<< Updated upstream
         // some code goes here
-        throw new UnsupportedOperationException("Implement this");
-=======
         String result = "";
         for (Field entry : entries) {
             result += entry.toString();
             result += "\t";
         }
         return result.strip();
->>>>>>> Stashed changes
     }
 
     /**
      * @return
-<<<<<<< Updated upstream
-     *        An iterator which iterates over all the fields of this tuple
-     * */
-    public Iterator<Field> fields()
-    {
-        // some code goes here
-        return null;
-=======
      *         An iterator which iterates over all the fields of this tuple
      */
     public Iterator<Field> fields() {
         return entries.iterator();
->>>>>>> Stashed changes
     }
 
     /**
      * reset the TupleDesc of this tuple (only affecting the TupleDesc)
-<<<<<<< Updated upstream
-     * */
-    public void resetTupleDesc(TupleDesc td)
-    {
         // some code goes here
-=======
      */
     public void resetTupleDesc(TupleDesc td) {
         this.td = td;
->>>>>>> Stashed changes
     }
 }
