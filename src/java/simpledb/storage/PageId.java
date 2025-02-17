@@ -20,7 +20,7 @@ public interface PageId {
      *   key in a hash table in the BufferPool, for example.)
      * @see BufferPool
      */
-    int hashCode();
+    int hashCode(); // TODO: Implement hashcode
 
     /**
      * Compares one PageId to another.
