@@ -6,8 +6,10 @@ import java.io.Serializable;
  * A RecordId is a reference to a specific tuple on a specific page of a
  * specific table.
  */
-public class RecordId implements Serializable {
 
+public class RecordId implements Serializable {
+    private PageId pid;
+    private int tupleno;
     private static final long serialVersionUID = 1L;
 
     /**
@@ -20,23 +22,22 @@ public class RecordId implements Serializable {
      *            the tuple number within the page.
      */
     public RecordId(PageId pid, int tupleno) {
-        // some code goes here
+        this.pid = pid;
+        this.tupleno = tupleno;
     }
 
     /**
      * @return the tuple number this RecordId references.
      */
     public int getTupleNumber() {
-        // some code goes here
-        return 0;
+        return this.tupleno;
     }
 
     /**
      * @return the page id this RecordId references.
      */
     public PageId getPageId() {
-        // some code goes here
-        return null;
+        return this.pid;
     }
 
     /**
@@ -47,8 +48,15 @@ public class RecordId implements Serializable {
      */
     @Override
     public boolean equals(Object o) {
-        // some code goes here
-        throw new UnsupportedOperationException("implement this");
+        //equal if a. refer to same page id and same tupleno
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+
+        RecordId recordId = (RecordId) o;
+
+        if (tupleno != recordId.tupleno) return false;
+        return pid != null ? pid.equals(recordId.pid) : recordId.pid == null;
+        //throw new UnsupportedOperationException("implement this");
     }
 
     /**
@@ -59,9 +67,17 @@ public class RecordId implements Serializable {
      */
     @Override
     public int hashCode() {
-        // some code goes here
-        throw new UnsupportedOperationException("implement this");
-
+        //recordIDs must have same hash code
+        //recordIDs cannot be null
+        int result;
+        if (pid != null) {
+            result = pid.hashCode();
+        } else {
+            result = 0;
+        }
+        result = 31 * result + tupleno;
+        return result;
+        //throw new UnsupportedOperationException("implement this");
     }
 
 }
