@@ -21,80 +21,6 @@ import simpledb.transaction.TransactionId;
  */
 public class BufferPool {
 
-    public class PageQueue {
-        private List<Page> pagesList;
-        private List<PageId> pageIdsList;
-        private int size;
-
-        public PageQueue() {
-            pagesList = new ArrayList<>();
-            pageIdsList = new ArrayList<>();
-            size = 0;
-        }
-
-        public Page refresh(PageId pageId) {
-            Page page = removePage(pageId);
-            addPage(page);
-            return page;
-        }
-
-        public void enqueue(Page page) {
-            PageId pageId = page.getId();
-            if (contains(pageId)) {
-                refresh(pageId);
-            } else {
-                addPage(page);
-            }
-        }
-
-        public Page removeOldest() {
-            if (!pagesList.isEmpty()) {
-                pageIdsList.removeFirst();
-                size--;
-                return pagesList.removeFirst();
-            }
-            return null;
-        }
-
-        public Page readPage(PageId pageId) {
-            if (contains(pageId)) {
-                Page res = pagesList.get(pageIdsList.indexOf(pageId));
-                enqueue(res);
-                return res;
-            }
-            return null;
-        }
-
-        private void addPage(Page page) {
-            pageIdsList.add(page.getId());
-            pagesList.add(page);
-            size++;
-        }
-
-        private Page removePage(PageId pageId) {
-            int ind = pageIdsList.indexOf(pageId);
-            pageIdsList.remove(pageId);
-            size--;
-            return pagesList.remove(ind);
-        }
-
-        public boolean contains(PageId pageId) {
-            return pageIdsList.contains(pageId);
-        }
-
-        public boolean contains(Page page) {
-            return pagesList.contains(page);
-        }
-
-        public boolean isEmpty() {
-            return pagesList.isEmpty();
-        }
-
-        public int size() {
-            return size;
-        }
-    }
-
     /** Bytes per page, including header. */
     private static final int DEFAULT_PAGE_SIZE = 4096;
 
@@ -107,8 +33,9 @@ public class BufferPool {
      */
     public static final int DEFAULT_PAGES = 50;
 
-    private PageQueue pageQueue;
-    private int numPages = DEFAULT_PAGES;
+    private List<PageId> LRUList;
+    private List<Page> pagesList;
+    private int size = DEFAULT_PAGE_SIZE;
 
     /**
      * Creates a BufferPool that caches up to numPages pages.
@@ -117,8 +44,9 @@ public class BufferPool {
      */
     public BufferPool(int numPages) {
         // some code goes here
-        this.numPages = numPages;
-        pageQueue = new PageQueue();
+        size = numPages;
+        LRUList = new ArrayList<>(size);
+        pagesList = new ArrayList<>(size);
     }
 
     public static int getPageSize() {
@@ -153,26 +81,24 @@ public class BufferPool {
     public Page getPage(TransactionId tid, PageId pid, Permissions perm)
             throws TransactionAbortedException, DbException {
         // some code goes here
-        Page page = null;
+        Page page;
         synchronized (tid) {
-            if (pageQueue.contains(pid)) {
-                page = pageQueue.refresh(pid);
+            if (LRUList.contains(pid)) {
+                int pageIndex = LRUList.indexOf(pid);
+                page = pagesList.get(pageIndex);
+                page.markDirty(true, tid);
             } else {
-                // get page from db
-                DbFile dbFile = Database.getCatalog().getDatabaseFile(pid.getTableId());
-                if (perm == (Permissions.READ_ONLY)) {
-                    page = dbFile.readPage(pid);
-                    while (pageQueue.size() >= numPages) {
-                        evictPage();
-                    }
-                    pageQueue.addPage(page);
+                if (pagesList.size() == size) {
+                    evictPage();
                 }
-                // check if there's space in cache
-                // evict oldestPage if not enough space
-
+                DbFile dbFile = Database.getCatalog().getDatabaseFile(pid.getTableId());
+                page = dbFile.readPage(pid);
+                page.markDirty(true, tid);
+                pagesList.add(page);
+                LRUList.add(pid);
             }
-            return page;
         }
+        return page;
     }
 
     /**
