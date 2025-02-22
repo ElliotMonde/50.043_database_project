@@ -130,22 +130,20 @@ public class HeapFile implements DbFile {
         TransactionId tid;
         HeapFile hf;
         Iterator<Tuple> iter;
-        int currPageNum;
 
         public HeapFileIterator(TransactionId tid, HeapFile hf) {
             this.tid = tid;
             this.hf = hf;
-            currPageNum = -1;
         }
 
         @Override
         public void open() throws DbException, TransactionAbortedException {
-            currPageNum = 0;
+            int currPageNum = -1;
             while (iter == null && currPageNum < hf.numPages() - 1) {
+                currPageNum++;
                 HeapPageId hpid = new HeapPageId(getId(), currPageNum);
                 HeapPage p = (HeapPage) Database.getBufferPool().getPage(tid, hpid, Permissions.READ_ONLY);
                 iter = p.iterator();
-                currPageNum++;
             }
         }
 
@@ -164,7 +162,8 @@ public class HeapFile implements DbFile {
         }
 
         @Override
-        public boolean hasNext() {
+        public boolean hasNext() throws DbException, TransactionAbortedException,
+                NoSuchElementException {
             return iter != null && iter.hasNext();
         }
         
