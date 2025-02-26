@@ -22,6 +22,8 @@ public class SeqScan implements OpIterator {
     private int tableId;
     private String tableAlias;
     private DbFileIterator tupleIterator;
+    private DbFile file;
+    private TransactionId tid;
 
     /**
      * Creates a sequential scan over the specified table as a part of the
@@ -44,9 +46,10 @@ public class SeqScan implements OpIterator {
      */
     public SeqScan(TransactionId tid, int tableid, String tableAlias) {
         // some code goes here
+        this.tid = tid;
         this.tableId = tableid;
-        this.tableAlias = tableAlias;
-        this.tupleIterator = Database.getCatalog().getDatabaseFile(tableid).iterator(tid);
+        this.tableAlias = tableAlias == null ? "null" : tableAlias;
+        this.file = Database.getCatalog().getDatabaseFile(tableid);
     }
 
     /**
@@ -56,7 +59,7 @@ public class SeqScan implements OpIterator {
      */
     public String getTableName() {
         // some code goes here
-        return Database.getCatalog().getTable(tableId).getName();
+        return Database.getCatalog().getTableName(tableId);
     }
 
     /**
@@ -64,7 +67,7 @@ public class SeqScan implements OpIterator {
      */
     public String getAlias() {
         // some code goes here
-        return tableAlias;
+        return this.tableAlias;
     }
 
     /**
@@ -85,8 +88,13 @@ public class SeqScan implements OpIterator {
      */
     public void reset(int tableid, String tableAlias) {
         // some code goes here
+        if (this.tupleIterator != null) {
+            this.tupleIterator.close();
+        }
         this.tableAlias = tableAlias;
         this.tableId = tableid;
+        this.file = Database.getCatalog().getDatabaseFile(tableid);
+        this.tupleIterator = this.file.iterator(tid);
     }
 
     public SeqScan(TransactionId tid, int tableId) {
@@ -96,6 +104,7 @@ public class SeqScan implements OpIterator {
     @Override
     public void open() throws DbException, TransactionAbortedException {
         // some code goes here
+        this.tupleIterator = this.file.iterator(tid);
         tupleIterator.open();
     }
 
@@ -112,16 +121,18 @@ public class SeqScan implements OpIterator {
     @Override
     public TupleDesc getTupleDesc() {
         // some code goes here
-        DbFile file = Database.getCatalog().getDatabaseFile(tableId);
-        TupleDesc td = file.getTupleDesc();
+        TupleDesc td = this.file.getTupleDesc();
         Iterator<TupleDesc.TDItem> iter = td.iterator();
-        String[] fieldNames = new String[td.numFields()];
-        Type[] fieldTypes = new Type[td.numFields()];
-        int i = 0;
+        int numFields = td.numFields();
+        List<String> fieldNames = new ArrayList<>(numFields);
+        List<Type> fieldTypes = new ArrayList<>(numFields);
+
+        tableAlias = tableAlias == null ? this.getTableName() : tableAlias;
         while (iter.hasNext()) {
             TupleDesc.TDItem next = iter.next();
-            fieldNames[i] = tableAlias + "." + next.fieldName;
-            fieldTypes[i++] = next.fieldType;
+            fieldNames.add(String.format("%s.%s", tableAlias,
+                    next.fieldName == null ? "null" : next.fieldName));
+            fieldTypes.add(next.fieldType);
         }
         return new TupleDesc(fieldTypes, fieldNames);
     }
@@ -129,26 +140,34 @@ public class SeqScan implements OpIterator {
     @Override
     public boolean hasNext() throws TransactionAbortedException, DbException {
         // some code goes here
-        return tupleIterator.hasNext();
+        return this.tupleIterator != null && this.tupleIterator.hasNext();
     }
 
     @Override
     public Tuple next() throws NoSuchElementException,
             TransactionAbortedException, DbException {
         // some code goes here
-        return tupleIterator.next();
+        Tuple next_tuple = this.tupleIterator.next();
+        if (next_tuple == null) {
+            throw new NoSuchElementException("No tuple found.");
+        }
+        return next_tuple;
     }
 
     @Override
     public void close() {
         // some code goes here
-        tupleIterator.close();
+        if (this.tupleIterator != null) {
+            this.tupleIterator.close();
+        }
+        this.tupleIterator = null;
     }
 
     @Override
     public void rewind() throws DbException, NoSuchElementException,
             TransactionAbortedException {
         // some code goes here
-        tupleIterator.rewind();
+        this.tupleIterator.close();
+        this.tupleIterator.open();
     }
 }

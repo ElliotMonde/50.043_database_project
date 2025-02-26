@@ -87,6 +87,18 @@ public class TupleDesc implements Serializable {
     }
 
     /**
+     * Additional Constructor for list params
+     * @author Elliot
+     *
+     * 
+     */
+    public TupleDesc(List<Type> typesList, List<String> fieldsNameList) {
+        this.typesList = typesList;
+        this.fieldNamesList = fieldsNameList;
+    }
+
+
+    /**
      * @return the number of fields in this TupleDesc
      */
     public int numFields() {
@@ -252,6 +264,9 @@ public class TupleDesc implements Serializable {
         String s = "";
         for (int i = 0; i < typesList.size(); i++) {
             s += typesList.get(i) + "(" + fieldNamesList.get(i) + ")";
+            if (i < typesList.size() - 1) {
+                s += ", ";
+            }
         }
         return s;
     }
