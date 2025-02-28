@@ -21,7 +21,9 @@ public class SeqScan implements OpIterator {
     private static final long serialVersionUID = 1L;
     private int tableId;
     private String tableAlias;
+    private DbFile f;
     private DbFileIterator tupleIterator;
+    private boolean isOpen = false;
 
     /**
      * Creates a sequential scan over the specified table as a part of the
@@ -46,7 +48,8 @@ public class SeqScan implements OpIterator {
         // some code goes here
         this.tableId = tableid;
         this.tableAlias = tableAlias;
-        this.tupleIterator = Database.getCatalog().getDatabaseFile(tableid).iterator(tid);
+        this.f = Database.getCatalog().getDatabaseFile(tableid);
+        this.tupleIterator = f.iterator(tid);
     }
 
     /**
@@ -87,6 +90,8 @@ public class SeqScan implements OpIterator {
         // some code goes here
         this.tableAlias = tableAlias;
         this.tableId = tableid;
+        this.f = Database.getCatalog().getDatabaseFile(tableid);
+        this.tupleIterator = f.iterator(new TransactionId());
     }
 
     public SeqScan(TransactionId tid, int tableId) {
@@ -96,6 +101,10 @@ public class SeqScan implements OpIterator {
     @Override
     public void open() throws DbException, TransactionAbortedException {
         // some code goes here
+        if (f == null || tupleIterator == null) {
+            throw new DbException("SeqScan: DbFile or tuple iterator is null.");
+        }
+        isOpen = true;
         tupleIterator.open();
     }
 
@@ -112,15 +121,18 @@ public class SeqScan implements OpIterator {
     @Override
     public TupleDesc getTupleDesc() {
         // some code goes here
-        DbFile file = Database.getCatalog().getDatabaseFile(tableId);
-        TupleDesc td = file.getTupleDesc();
+        TupleDesc td = f.getTupleDesc();
         Iterator<TupleDesc.TDItem> iter = td.iterator();
+
         String[] fieldNames = new String[td.numFields()];
         Type[] fieldTypes = new Type[td.numFields()];
+
         int i = 0;
+        String currTableAlias = tableAlias == null ? "null" : tableAlias;
+
         while (iter.hasNext()) {
             TupleDesc.TDItem next = iter.next();
-            fieldNames[i] = tableAlias + "." + next.fieldName;
+            fieldNames[i] = currTableAlias + "." + (next.fieldName == null ? "null" : next.fieldName);
             fieldTypes[i++] = next.fieldType;
         }
         return new TupleDesc(fieldTypes, fieldNames);
@@ -129,6 +141,9 @@ public class SeqScan implements OpIterator {
     @Override
     public boolean hasNext() throws TransactionAbortedException, DbException {
         // some code goes here
+        if (!isOpen) {
+            throw new DbException("SeqScan: tuple iterator not open.");
+        }
         return tupleIterator.hasNext();
     }
 
@@ -136,19 +151,28 @@ public class SeqScan implements OpIterator {
     public Tuple next() throws NoSuchElementException,
             TransactionAbortedException, DbException {
         // some code goes here
+        if (!isOpen) {
+            throw new NoSuchElementException("SeqScan: no more tuples.");
+        }
         return tupleIterator.next();
     }
 
     @Override
     public void close() {
         // some code goes here
-        tupleIterator.close();
+        if (tupleIterator != null) {
+            tupleIterator.close();
+        }
+        isOpen = false;
     }
 
     @Override
     public void rewind() throws DbException, NoSuchElementException,
             TransactionAbortedException {
         // some code goes here
+        if (!isOpen) {
+            throw new DbException("SeqScan: Cannot rewind before opening iterator.");
+        }
         tupleIterator.rewind();
     }
 }
