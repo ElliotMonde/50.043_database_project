@@ -151,15 +151,6 @@ public class HeapFile implements DbFile {
         }
 
         @Override
-        public Tuple next() throws DbException, TransactionAbortedException,
-                NoSuchElementException {
-            if (!hasNext()){
-                throw new NoSuchElementException();
-            }
-            return readNext();
-        }
-
-        @Override
         public boolean hasNext() throws DbException, TransactionAbortedException,
                 NoSuchElementException {
             while ((iter == null) || (!iter.hasNext())){
@@ -192,6 +183,7 @@ public class HeapFile implements DbFile {
         public void loadPage(int pageNo) throws DbException, TransactionAbortedException{
             if ((pageNo<0) || (pageNo > hf.numPages() - 1)){
                 iter = null;
+                return ;
             }
                 HeapPageId hpid = new HeapPageId(getId(), pageNo);
                 HeapPage p = (HeapPage) Database.getBufferPool().getPage(tid, hpid, Permissions.READ_ONLY);
