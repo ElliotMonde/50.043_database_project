@@ -1,6 +1,8 @@
 package simpledb.execution;
 
 import simpledb.common.DbException;
+import simpledb.common.Type;
+import simpledb.storage.DbFileIterator;
 import simpledb.storage.Tuple;
 import simpledb.storage.TupleDesc;
 import simpledb.transaction.TransactionAbortedException;
@@ -14,7 +16,12 @@ import java.util.NoSuchElementException;
  * single column.
  */
 public class Aggregate extends Operator {
-
+    private OpIterator source;
+    private int fieldIndexToGB;
+    private int fieldIndexOfAggregate;
+    private Aggregator.Op operation;
+    private Aggregator aggregator;
+    private OpIterator aggIterator;
     private static final long serialVersionUID = 1L;
 
     /**
@@ -31,7 +38,30 @@ public class Aggregate extends Operator {
      * @param aop    The aggregation operator to use
      */
     public Aggregate(OpIterator child, int afield, int gfield, Aggregator.Op aop) {
-        // some code goes here
+        this.source = child;
+        this.fieldIndexOfAggregate = afield;
+        this.fieldIndexToGB = gfield;
+        this.operation = aop;
+        Type typeOfAgg = source.getTupleDesc().getFieldType(fieldIndexOfAggregate);
+        if (typeOfAgg == Type.INT_TYPE){
+            if (fieldIndexToGB == -1){
+                aggregator = new IntegerAggregator(Aggregator.NO_GROUPING, null, fieldIndexOfAggregate, operation);
+            }
+            else{
+                Type typeOfGB = source.getTupleDesc().getFieldType(fieldIndexToGB);
+                aggregator = new IntegerAggregator(fieldIndexToGB, typeOfGB, fieldIndexOfAggregate, operation);
+            }
+        }
+        else{
+            if (fieldIndexToGB == -1){
+                aggregator = new StringAggregator(Aggregator.NO_GROUPING, null, fieldIndexOfAggregate, operation);
+            }
+            else{
+                Type typeOfGB = source.getTupleDesc().getFieldType(fieldIndexToGB);
+                aggregator = new StringAggregator(fieldIndexToGB, typeOfGB, fieldIndexOfAggregate, operation);
+            }
+        }
+        
     }
 
     /**
@@ -40,8 +70,7 @@ public class Aggregate extends Operator {
      * {@link Aggregator#NO_GROUPING}
      */
     public int groupField() {
-        // some code goes here
-        return -1;
+        return fieldIndexToGB;
     }
 
     /**
@@ -50,16 +79,17 @@ public class Aggregate extends Operator {
      * null;
      */
     public String groupFieldName() {
-        // some code goes here
-        return null;
+        if (fieldIndexToGB == -1){
+            return null;
+        }
+        return source.getTupleDesc().getFieldName(fieldIndexToGB);
     }
 
     /**
      * @return the aggregate field
      */
     public int aggregateField() {
-        // some code goes here
-        return -1;
+        return fieldIndexOfAggregate;
     }
 
     /**
@@ -67,16 +97,14 @@ public class Aggregate extends Operator {
      * tuples
      */
     public String aggregateFieldName() {
-        // some code goes here
-        return null;
+        return source.getTupleDesc().getFieldName(fieldIndexOfAggregate);
     }
 
     /**
      * @return return the aggregate operator
      */
     public Aggregator.Op aggregateOp() {
-        // some code goes here
-        return null;
+        return operation;
     }
 
     public static String nameOfAggregatorOp(Aggregator.Op aop) {
@@ -85,7 +113,13 @@ public class Aggregate extends Operator {
 
     public void open() throws NoSuchElementException, DbException,
             TransactionAbortedException {
-        // some code goes here
+        super.open();
+        source.open();
+        while (source.hasNext()){
+            aggregator.mergeTupleIntoGroup(source.next());
+        }
+        aggIterator = aggregator.iterator();
+        aggIterator.open();
     }
 
     /**
@@ -96,12 +130,16 @@ public class Aggregate extends Operator {
      * aggregate. Should return null if there are no more tuples.
      */
     protected Tuple fetchNext() throws TransactionAbortedException, DbException {
-        // some code goes here
-        return null;
+        if (aggIterator.hasNext()){
+            return aggIterator.next();
+        }
+        else{
+            return null;
+        }
     }
 
     public void rewind() throws DbException, TransactionAbortedException {
-        // some code goes here
+        aggIterator.rewind();
     }
 
     /**
@@ -116,23 +154,34 @@ public class Aggregate extends Operator {
      * iterator.
      */
     public TupleDesc getTupleDesc() {
-        // some code goes here
-        return null;
+        TupleDesc childTd = source.getTupleDesc();
+        Type aggType = childTd.getFieldType(fieldIndexOfAggregate);
+        String aggFieldName = nameOfAggregatorOp(operation) + " (" + childTd.getFieldName(fieldIndexOfAggregate) + ")";
+
+        Type groupType = childTd.getFieldType(fieldIndexToGB);
+        String groupFieldName = childTd.getFieldName(fieldIndexToGB);
+        if (fieldIndexToGB == -1){
+            return new TupleDesc(new Type[]{aggType}, new String[]{aggFieldName});
+        }
+        else{
+            return new TupleDesc(new Type[]{groupType, aggType}, new String[]{groupFieldName, aggFieldName});
+        }
     }
 
     public void close() {
-        // some code goes here
+        super.close();
+        source.close();
+        aggIterator.close();
     }
 
     @Override
     public OpIterator[] getChildren() {
-        // some code goes here
-        return null;
+        return new OpIterator[]{aggIterator};
     }
 
     @Override
     public void setChildren(OpIterator[] children) {
-        // some code goes here
+        aggIterator = children[0];
     }
 
 }

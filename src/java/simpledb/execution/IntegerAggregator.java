@@ -138,7 +138,12 @@ public class IntegerAggregator implements Aggregator {
             Tuple entry = new Tuple(descriptor);
             int value = resultantTable.get(key);
             if (this.fieldIndexToGB == Aggregator.NO_GROUPING){
-                entry.setField(0, new IntField(value));
+                if (operation == Op.AVG){
+                    entry.setField(0, new IntField(value/countTable.get(null)));
+                }
+                else{
+                    entry.setField(0, new IntField(value));
+                }
             }
             else{
                 entry.setField(0, key);
@@ -146,7 +151,7 @@ public class IntegerAggregator implements Aggregator {
                     entry.setField(1, new IntField(value/countTable.get(key)));
                 }
                 else{
-                    entry.setField(1, new IntField(value));
+                    entry.setField(1, new IntField(resultantTable.get(key)));
                 }
                 
             }
