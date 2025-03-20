@@ -113,6 +113,13 @@ public class BufferPool {
     public void unsafeReleasePage(TransactionId tid, PageId pid) {
         // some code goes here
         // not necessary for lab1|lab2
+        int index = LRUList.indexOf(pid);
+        if (index!=-1){
+            Page page = pagesList.get(index);
+            if (page.isDirty()!=null&&page.isDirty().equals(tid)){
+                page.markDirty(false, null);
+            }
+        }
     }
 
     /**
@@ -123,12 +130,23 @@ public class BufferPool {
     public void transactionComplete(TransactionId tid) {
         // some code goes here
         // not necessary for lab1|lab2
+        for (PageId pid: LRUList){
+            Page page = pagesList.get(LRUList.indexOf(pid));
+            if (page.isDirty()!=null&&page.isDirty().equals(tid)){
+                unsafeReleasePage(tid, pid);
+            }
+        }
     }
 
     /** Return true if the specified transaction has a lock on the specified page */
     public boolean holdsLock(TransactionId tid, PageId p) {
         // some code goes here
         // not necessary for lab1|lab2
+        int index = LRUList.indexOf(p);
+        if (index!=-1){
+            Page page = pagesList.get(index);
+            return page.isDirty()!=null&&page.isDirty().equals(tid);
+        }
         return false;
     }
 
@@ -142,6 +160,24 @@ public class BufferPool {
     public void transactionComplete(TransactionId tid, boolean commit) {
         // some code goes here
         // not necessary for lab1|lab2
+        if (commit) {
+            try {
+                flushPages(tid);
+            } catch (IOException e) {
+                throw new RuntimeException("Failed to flush pages during commit", e);
+            }
+        } else {
+            // Abort: discard dirty pages associated with this transaction
+            Iterator<PageId> pidIterator = LRUList.iterator();
+            Iterator<Page> pageIterator = pagesList.iterator();
+            while (pidIterator.hasNext()) {
+                Page page = pageIterator.next();
+                if (page.isDirty() != null && page.isDirty().equals(tid)) {
+                    pidIterator.remove();
+                    pageIterator.remove();
+                }
+            }
+        }
     }
 
     /**
@@ -163,6 +199,18 @@ public class BufferPool {
             throws DbException, IOException, TransactionAbortedException {
         // some code goes here
         // not necessary for lab1
+        DbFile dbFile = Database.getCatalog().getDatabaseFile(tableId);
+        List<Page> dirtyPages = dbFile.insertTuple(tid, t);
+        for (Page page:dirtyPages){
+            page.markDirty(true, tid);
+            if (!LRUList.contains(page.getId())){
+                if (pagesList.size()==size){
+                    evictPage();
+                }
+                LRUList.add(page.getId());
+                pagesList.add(page);
+            }
+        }
     }
 
     /**
@@ -182,6 +230,18 @@ public class BufferPool {
             throws DbException, IOException, TransactionAbortedException {
         // some code goes here
         // not necessary for lab1
+        DbFile dbFile = Database.getCatalog().getDatabaseFile(t.getRecordId().getPageId().getTableId());
+        List<Page> dirtyPages = dbFile.deleteTuple(tid, t);
+        for (Page page : dirtyPages) {
+            page.markDirty(true, tid);
+            if (!LRUList.contains(page.getId())) {
+                if (pagesList.size() == size) {
+                    evictPage();
+                }
+                LRUList.add(page.getId());
+                pagesList.add(page);
+            }
+        }
     }
 
     /**
@@ -192,7 +252,9 @@ public class BufferPool {
     public synchronized void flushAllPages() throws IOException {
         // some code goes here
         // not necessary for lab1
-
+        for (PageId pid:LRUList){
+            flushPage(pid);
+        }
     }
 
     /**
@@ -207,6 +269,11 @@ public class BufferPool {
     public synchronized void discardPage(PageId pid) {
         // some code goes here
         // not necessary for lab1
+        int index=LRUList.indexOf(pid);
+        if (index!=-1){
+            LRUList.remove(index);
+            pagesList.remove(index);
+        }
     }
 
     /**
@@ -217,6 +284,14 @@ public class BufferPool {
     private synchronized void flushPage(PageId pid) throws IOException {
         // some code goes here
         // not necessary for lab1
+        int index = LRUList.indexOf(pid);
+        if (index!=-1){
+            Page page=pagesList.get(index);
+            if (page.isDirty()!=null){
+                Database.getCatalog().getDatabaseFile(pid.getTableId()).writePage(page);
+                page.markDirty(false, null);
+            }
+        }
     }
 
     /**
@@ -225,6 +300,12 @@ public class BufferPool {
     public synchronized void flushPages(TransactionId tid) throws IOException {
         // some code goes here
         // not necessary for lab1|lab2
+        for (PageId pid: LRUList){
+            Page page = pagesList.get(LRUList.indexOf(pid));
+            if (page.isDirty()!=null&&page.isDirty().equals(tid)){
+                flushPage(pid);
+            }
+        }
     }
 
     /**
@@ -234,6 +315,16 @@ public class BufferPool {
     private synchronized void evictPage() throws DbException {
         // some code goes here
         // not necessary for lab1
+        if (LRUList.isEmpty()){
+            throw new DbException("no pages to evict");
+        }
+        PageId evictPid = LRUList.get(0);
+        try {
+            flushPage(evictPid);
+        } catch (IOException e) {
+            throw new DbException("failed to evict page"+e.getMessage().toString());
+        }
+        discardPage(evictPid);
     }
 
 }
