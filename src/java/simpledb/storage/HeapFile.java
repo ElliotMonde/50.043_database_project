@@ -94,6 +94,10 @@ public class HeapFile implements DbFile {
     }
 
     // see DbFile.java for javadocs
+    //1. validate pageid
+    //2. calculate offset
+    //3. write to file
+    //4. catch n throw ioexception
     public void writePage(Page page) throws IOException {
         // some code goes here
         byte[] dataToWrite = page.getPageData();
@@ -106,6 +110,18 @@ public class HeapFile implements DbFile {
             rf.write(dataToWrite); // throws IOException if write fails
         }
         // not necessary for lab1
+        HeapPageId pid = (HeapPageId) page.getId();
+        if (pid.getTableId() != getId()) {
+            throw new IllegalArgumentException("Page does not belong to this HeapFile");
+        }
+        int pageSize = BufferPool.getPageSize();
+        int offset = pid.getPageNumber()*pageSize;
+        try (RandomAccessFile f = new RandomAccessFile(getFile(), "rw")){
+            f.seek(offset);
+            f.write(page.getPageData());
+        } catch (IOException e){
+            throw new IOException("failed to write message to disk");
+        }
     }
 
     /**

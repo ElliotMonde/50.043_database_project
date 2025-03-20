@@ -266,6 +266,14 @@ public class BufferPool {
     private synchronized void flushPage(PageId pid) throws IOException {
         // some code goes here
         // not necessary for lab1
+        int index = LRUList.indexOf(pid);
+        if (index != -1) {
+            Page page = pagesList.get(index);
+            if (page.isDirty() != null) {
+                Database.getCatalog().getDatabaseFile(pid.getTableId()).writePage(page);
+                page.markDirty(false, null);
+            }
+        }
     }
 
     /**
@@ -274,6 +282,12 @@ public class BufferPool {
     public synchronized void flushPages(TransactionId tid) throws IOException {
         // some code goes here
         // not necessary for lab1|lab2
+        for (PageId pid : LRUList) {
+            Page page = pagesList.get(LRUList.indexOf(pid));
+            if (page.isDirty() != null && page.isDirty().equals(tid)) {
+                flushPage(pid);
+            }
+        }
     }
 
     /**
