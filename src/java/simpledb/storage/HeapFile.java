@@ -14,20 +14,20 @@ import simpledb.transaction.TransactionId;
  * size, and the file is simply a collection of those pages. HeapFile works
  * closely with HeapPage. The format of HeapPages is described in the HeapPage
  * constructor.
- * 
+ *
  * @see HeapPage#HeapPage
  * @author Sam Madden
  */
 public class HeapFile implements DbFile {
+
     private File file;
     private TupleDesc td;
 
     /**
      * Constructs a heap file backed by the specified file.
-     * 
-     * @param f
-     *          the file that stores the on-disk backing store for this heap
-     *          file.
+     *
+     * @param f the file that stores the on-disk backing store for this heap
+     * file.
      */
     public HeapFile(File f, TupleDesc td) {
         this.file = f;
@@ -37,7 +37,7 @@ public class HeapFile implements DbFile {
 
     /**
      * Returns the File backing this HeapFile on disk.
-     * 
+     *
      * @return the File backing this HeapFile on disk.
      */
     public File getFile() {
@@ -51,7 +51,7 @@ public class HeapFile implements DbFile {
      * HeapFile has a "unique id," and that you always return the same value for
      * a particular HeapFile. We suggest hashing the absolute file name of the
      * file underlying the heapfile, i.e. f.getAbsoluteFile().hashCode().
-     * 
+     *
      * @return an ID uniquely identifying this HeapFile.
      */
     public int getId() {
@@ -60,7 +60,7 @@ public class HeapFile implements DbFile {
 
     /**
      * Returns the TupleDesc of the table stored in this DbFile.
-     * 
+     *
      * @return TupleDesc of this DbFile.
      */
     public TupleDesc getTupleDesc() {
@@ -96,6 +96,15 @@ public class HeapFile implements DbFile {
     // see DbFile.java for javadocs
     public void writePage(Page page) throws IOException {
         // some code goes here
+        byte[] dataToWrite = page.getPageData();
+
+        try (RandomAccessFile rf = new RandomAccessFile(file, "rw")) {
+            int pageNo = page.getId().getPageNumber();
+            int offset = pageNo * BufferPool.getPageSize();
+
+            rf.seek(offset);
+            rf.write(dataToWrite); // throws IOException if write fails
+        }
         // not necessary for lab1
     }
 
@@ -114,7 +123,28 @@ public class HeapFile implements DbFile {
     public List<Page> insertTuple(TransactionId tid, Tuple t)
             throws DbException, IOException, TransactionAbortedException {
         // some code goes here
-        return null;
+        List<Page> changedPagesList = new ArrayList<>();
+
+        for (int pgNo = 0; pgNo < numPages(); pgNo++) {
+            HeapPageId pid = new HeapPageId(getId(), pgNo);
+            HeapPage currentPage = (HeapPage) Database.getBufferPool().getPage(tid, pid, Permissions.READ_ONLY);
+
+            synchronized (currentPage) { // acquire lock on affected pages of file, else block
+                if (currentPage.getNumEmptySlots() > 0) {
+                    currentPage = (HeapPage) Database.getBufferPool().getPage(tid, pid, Permissions.READ_WRITE);
+                    currentPage.insertTuple(t);
+                    changedPagesList.add(currentPage);
+                    break;
+                }
+            } // release lock
+        }
+        if (changedPagesList.isEmpty()) {
+            HeapPage newHeapPage = new HeapPage(new HeapPageId(getId(), numPages()), new byte[BufferPool.getPageSize()]);
+            newHeapPage.insertTuple(t);
+            writePage(newHeapPage);
+            changedPagesList.add(newHeapPage);
+        }
+        return changedPagesList;
         // not necessary for lab1
     }
 
@@ -122,7 +152,23 @@ public class HeapFile implements DbFile {
     public ArrayList<Page> deleteTuple(TransactionId tid, Tuple t) throws DbException,
             TransactionAbortedException {
         // some code goes here
-        return null;
+        ArrayList<Page> changedPagesList = new ArrayList<>();
+
+        for (int pgNo = 0; pgNo < numPages(); pgNo++) {
+            PageId pid = t.getRecordId().getPageId();
+            HeapPage currentPage = (HeapPage) Database.getBufferPool().getPage(tid, pid, Permissions.READ_ONLY);
+
+            synchronized (currentPage) {
+                if (pid.getPageNumber() == pgNo) {
+                    currentPage = (HeapPage) Database.getBufferPool().getPage(tid, pid, Permissions.READ_WRITE);
+                    currentPage.deleteTuple(t);
+                    changedPagesList.add(currentPage);
+                    break;
+                }
+            }
+        }
+
+        return changedPagesList;
         // not necessary for lab1
     }
 
