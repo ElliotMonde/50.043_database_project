@@ -144,20 +144,7 @@ public class BufferPool {
     public void transactionComplete(TransactionId tid) {
         // some code goes here
         // not necessary for lab1|lab2
-        Set<PageId> pgSet = lockManager.getTransactionPIDs(tid);
-        for (PageId pid : pgSet) {
-            RWLock lock = lockManager.getLock(pid);
-            if (holdsLock(tid, pid)) {
-                if (lock.canReadWrite(tid)) {
-                    lockManager.releaseLock(pid, tid, Permissions.READ_WRITE);
-                } else if (lock.canRead(tid)) {
-                    lockManager.releaseLock(pid, tid, Permissions.READ_ONLY);
-                }
-            }
-            int ind = LRUList.indexOf(pid);
-            pagesList.remove(ind);
-            LRUList.remove(pid);
-        }
+        transactionComplete(tid, true);
     }
 
     /**
@@ -187,7 +174,20 @@ public class BufferPool {
                 throw new RuntimeException("Failed to flush pages during commit", e);
             }
         }
-        transactionComplete(tid);
+        Set<PageId> pgSet = lockManager.getTransactionPIDs(tid);
+        for (PageId pid : pgSet) {
+            RWLock lock = lockManager.getLock(pid);
+            if (holdsLock(tid, pid)) {
+                if (lock.canReadWrite(tid)) {
+                    lockManager.releaseLock(pid, tid, Permissions.READ_WRITE);
+                } else if (lock.canRead(tid)) {
+                    lockManager.releaseLock(pid, tid, Permissions.READ_ONLY);
+                }
+            }
+            int ind = LRUList.indexOf(pid);
+            pagesList.remove(ind);
+            LRUList.remove(pid);
+        }
     }
 
     /**

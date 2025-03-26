@@ -6,8 +6,7 @@ import java.util.Set;
 public class RWLock {
 
     private boolean exclusive; // current state: exclusive when 1 holders and read_write, exclusive is always read_write permissions, if read_only --> shared
-    private HashMap<TransactionId, Boolean> holderTIDs; // tid, isholder, also queue
-    // lock: knows who acquired it, who is waiting for lock, knows whether it's exclusive
+    private HashMap<TransactionId, Boolean> holderTIDs; // tid, isholder
 
     public RWLock() {
         exclusive = false;
