@@ -39,10 +39,18 @@ public class LockManager {
     }
 
     public void acquireReadLock(PageId pid, TransactionId tid) {
+        if (tidMap.containsKey(tid) && tidMap.get(tid).contains(pid)) {
+            return;
+        }
         if (!hasPageLock(pid, tid)) {
             RWLock lock = getLockOrDefault(pid, tid);
             lock.acquireReadLock(tid);
             addToTIDMap(pid, tid);
+        } else {
+            RWLock lock = pageLockMap.get(pid);
+            if (!lock.canRead(tid)) {
+                lock.acquireReadLock(tid);
+            }
         }
     }
 
@@ -51,35 +59,32 @@ public class LockManager {
             RWLock lock = getLockOrDefault(pid, tid);
             lock.acquireReadWriteLock(tid);
             addToTIDMap(pid, tid);
+        } else {
+            RWLock lock = pageLockMap.get(pid);
+            if (!lock.canReadWrite(tid)) {
+                lock.acquireReadWriteLock(tid);
+            }
         }
     }
 
     public void releaseReadLock(PageId pid, TransactionId tid) {
-        if (hasPageLock(pid, tid) && pageLockMap.containsKey(pid)) {
             RWLock lock = pageLockMap.get(pid);
             lock.readUnlock(tid);
             removeFromTIDMap(pid, tid);
-
-            if (lock.lockHolders().isEmpty()){
-                pageLockMap.remove(pid);
-            }
-        }
     }
 
     public void releaseReadWriteLock(PageId pid, TransactionId tid) {
-        if (hasPageLock(pid, tid) && pageLockMap.containsKey(pid)) {
-            RWLock lock = pageLockMap.get(pid);
-            lock.readWriteUnlock(tid);
-            removeFromTIDMap(pid, tid);
-
-            if (lock.lockHolders().isEmpty()) {
-                pageLockMap.remove(pid);
-            }
-        }
+        RWLock lock = pageLockMap.get(pid);
+        lock.readWriteUnlock(tid);
+        removeFromTIDMap(pid, tid);
     }
 
     public RWLock getLockOrDefault(PageId pid, TransactionId tid) {
         return pageLockMap.computeIfAbsent(pid, k -> new RWLock());
+    }
+
+    public RWLock getLock(PageId pid) {
+        return pageLockMap.get(pid);
     }
 
     public void addToTIDMap(PageId pid, TransactionId tid) {
@@ -91,10 +96,10 @@ public class LockManager {
 
     public void removeFromTIDMap(PageId pid, TransactionId tid) {
         if (tidMap.containsKey(tid)) {
-            Set<PageId> pgSet  = tidMap.get(tid);
+            Set<PageId> pgSet = tidMap.get(tid);
             pgSet.remove(pid);
             if (pgSet.isEmpty()) {
-                tidMap.remove(tid);  
+                tidMap.remove(tid);
             }
         }
     }

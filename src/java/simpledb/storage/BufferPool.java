@@ -6,6 +6,7 @@ import simpledb.common.Database;
 import simpledb.common.DbException;
 import simpledb.common.Permissions;
 import simpledb.transaction.LockManager;
+import simpledb.transaction.RWLock;
 import simpledb.transaction.TransactionAbortedException;
 import simpledb.transaction.TransactionId;
 
@@ -89,23 +90,27 @@ public class BufferPool {
         Page page;
         // acquire lock
         lockManager.acquireLock(pid, tid, perm);
-        if (LRUList.contains(pid)) {
-            int pageIndex = LRUList.indexOf(pid);
-            page = pagesList.get(pageIndex);
-            page.markDirty(true, tid);
-        } else {
-            if (pagesList.size() == size) {
+        synchronized (this) {
+            if (LRUList.contains(pid)) {
+                int pageIndex = LRUList.indexOf(pid);
+                page = pagesList.get(pageIndex);
+            } else {
+                if (pagesList.size() == size) {
+                    evictPage();
+                }
+                DbFile dbFile = Database.getCatalog().getDatabaseFile(pid.getTableId());
+                page = dbFile.readPage(pid);
+            }
+            if (perm == Permissions.READ_WRITE) {
+                page.markDirty(true, tid);
+            }
+            if (size <= pagesList.size()) {
                 evictPage();
             }
-            DbFile dbFile = Database.getCatalog().getDatabaseFile(pid.getTableId());
-            page = dbFile.readPage(pid);
-            page.markDirty(true, tid);
-            pagesList.add(page);
-            LRUList.add(pid);
+            putPage(page);
+            // release lock in transaction complete
+            return page;
         }
-        // release lock in transaction complete
-        lockManager.releaseLock(pid, tid, perm);
-        return page;
     }
 
     /**
@@ -127,10 +132,8 @@ public class BufferPool {
         //         page.markDirty(false, null);
         //     }
         // }
-        if (holdsLock(tid, pid)){
-            lockManager.releaseLock(pid, tid, Permissions.READ_ONLY);
-            lockManager.releaseLock(pid, tid, Permissions.READ_WRITE);
-        }
+        lockManager.releaseLock(pid, tid, Permissions.READ_ONLY);
+        lockManager.releaseLock(pid, tid, Permissions.READ_WRITE);
     }
 
     /**
@@ -141,15 +144,19 @@ public class BufferPool {
     public void transactionComplete(TransactionId tid) {
         // some code goes here
         // not necessary for lab1|lab2
-        // for (PageId pid : LRUList) {
-        //     Page page = pagesList.get(LRUList.indexOf(pid));
-        //     if (page.isDirty() != null && page.isDirty().equals(tid)) {
-        //         unsafeReleasePage(tid, pid);
-        //     }
-        // }
         Set<PageId> pgSet = lockManager.getTransactionPIDs(tid);
-        for (PageId pid : pgSet){
-            unsafeReleasePage(tid, pid);
+        for (PageId pid : pgSet) {
+            RWLock lock = lockManager.getLock(pid);
+            if (holdsLock(tid, pid)) {
+                if (lock.canReadWrite(tid)) {
+                    lockManager.releaseLock(pid, tid, Permissions.READ_WRITE);
+                } else if (lock.canRead(tid)) {
+                    lockManager.releaseLock(pid, tid, Permissions.READ_ONLY);
+                }
+            }
+            int ind = LRUList.indexOf(pid);
+            pagesList.remove(ind);
+            LRUList.remove(pid);
         }
     }
 
@@ -159,7 +166,7 @@ public class BufferPool {
     public boolean holdsLock(TransactionId tid, PageId p) {
         // some code goes here
         // not necessary for lab1|lab2
-        return lockManager.hasPageLock(p,tid);
+        return lockManager.hasPageLock(p, tid);
     }
 
     /**
@@ -173,24 +180,14 @@ public class BufferPool {
         // some code goes here
         // not necessary for lab1|lab2
 
-        // if (commit) {
-        //     try {
-        //         flushPages(tid);
-        //     } catch (IOException e) {
-        //         throw new RuntimeException("Failed to flush pages during commit", e);
-        //     }
-        // } else {
-        //     // Abort: discard dirty pages associated with this transaction
-        //     Iterator<PageId> pidIterator = LRUList.iterator();
-        //     Iterator<Page> pageIterator = pagesList.iterator();
-        //     while (pidIterator.hasNext()) {
-        //         Page page = pageIterator.next();
-        //         if (page.isDirty() != null && page.isDirty().equals(tid)) {
-        //             pidIterator.remove();
-        //             pageIterator.remove();
-        //         }
-        //     }
-        // }
+        if (commit) {
+            try {
+                flushPages(tid);
+            } catch (IOException e) {
+                throw new RuntimeException("Failed to flush pages during commit", e);
+            }
+        }
+        transactionComplete(tid);
     }
 
     /**
@@ -353,8 +350,8 @@ public class BufferPool {
                 } catch (IOException e) {
                     throw new DbException("Failed to evict page from bufferpool.");
                 }
-                discardPage(pid);
             }
+            discardPage(pid);
         }
     }
 

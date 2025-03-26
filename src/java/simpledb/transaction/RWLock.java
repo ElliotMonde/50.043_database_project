@@ -7,19 +7,20 @@ public class RWLock {
 
     private boolean exclusive; // current state: exclusive when 1 holders and read_write, exclusive is always read_write permissions, if read_only --> shared
     private HashMap<TransactionId, Boolean> holderTIDs; // tid, isholder, also queue
-    private int waitingWriters;
     // lock: knows who acquired it, who is waiting for lock, knows whether it's exclusive
 
     public RWLock() {
         exclusive = false;
         holderTIDs = new HashMap<>();
-        waitingWriters = 0;
     }
 
     public void acquireReadLock(TransactionId tid) {
         synchronized (this) {
+            if (holderTIDs.containsKey(tid)){
+                return;
+            }
             try {
-                while (exclusive || waitingWriters > 0) {
+                while (exclusive) {
                     this.wait();
                 }
                 holderTIDs.put(tid, false);
@@ -32,13 +33,14 @@ public class RWLock {
     public void acquireReadWriteLock(TransactionId tid) {
         synchronized (this) {
             try {
-                ++waitingWriters;
-                while (exclusive || !holderTIDs.isEmpty()) {
+                if (exclusive && holderTIDs.containsKey(tid)){ // if already holding rw lock
+                    return;
+                }
+                while (exclusive || holderTIDs.size() > (holderTIDs.containsKey(tid) ? 1 : 0)) {
                     this.wait();
                 }
-                --waitingWriters;
                 exclusive = true;
-                holderTIDs.put(tid, true);
+                holderTIDs.put(tid, true); // upgrade or put new
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
@@ -47,9 +49,9 @@ public class RWLock {
 
     public void readUnlock(TransactionId tid) {
         synchronized (this) {
-            if (holderTIDs.containsKey(tid) && !holderTIDs.get(tid)) {
+            if (holderTIDs.containsKey(tid) && !holderTIDs.get(tid)) { // if holder of non-exclusive lock
                 holderTIDs.remove(tid);
-                if (holderTIDs.isEmpty()) {
+                if (holderTIDs.isEmpty()) { // only notify if empty, for threads waiting for write lock
                     notifyAll();
                 }
             }
@@ -70,7 +72,7 @@ public class RWLock {
         return holderTIDs.keySet();
     }
 
-    public synchronized boolean isExclusive() {
+    public boolean isExclusive() {
         return exclusive;
     }
 
