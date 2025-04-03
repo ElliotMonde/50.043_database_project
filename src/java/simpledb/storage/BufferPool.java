@@ -116,29 +116,25 @@ public class BufferPool {
         // some code goes here
         // not necessary for lab1|lab2
 
-        // int index = LRUList.indexOf(pid);
-        // if (index != -1) {
-        //     Page page = pagesList.get(index);
-        //     if (page.isDirty() != null && page.isDirty().equals(tid)) {
-        //         page.markDirty(false, null);
-        //     }
-        // }
+        int index = LRUList.indexOf(pid);
+        if (index != -1) {
+            Page page = pagesList.get(index);
+            if (page.isDirty() != null && page.isDirty().equals(tid)) {
+                page.markDirty(false, null);
+            }
+        }
     }
 
     /**
      * Release all locks associated with a given transaction.
      *
      * @param tid the ID of the transaction requesting the unlock
+     * Should ALWAYS commit, can just call trnsactionComplete(true)
      */
     public void transactionComplete(TransactionId tid) {
         // some code goes here
         // not necessary for lab1|lab2
-        // for (PageId pid : LRUList) {
-        //     Page page = pagesList.get(LRUList.indexOf(pid));
-        //     if (page.isDirty() != null && page.isDirty().equals(tid)) {
-        //         unsafeReleasePage(tid, pid);
-        //     }
-        // }
+        transactionComplete(tid, true);
     }
 
     /**
@@ -147,11 +143,11 @@ public class BufferPool {
     public boolean holdsLock(TransactionId tid, PageId p) {
         // some code goes here
         // not necessary for lab1|lab2
-        // int index = LRUList.indexOf(p);
-        // if (index != -1) {
-        //     Page page = pagesList.get(index);
-        //     return page.isDirty() != null && page.isDirty().equals(tid);
-        // }
+        int index = LRUList.indexOf(p);
+        if (index != -1) {
+            Page page = pagesList.get(index);
+            return page.isDirty() != null && page.isDirty().equals(tid);
+        }
         return false;
     }
 
@@ -165,25 +161,27 @@ public class BufferPool {
     public void transactionComplete(TransactionId tid, boolean commit) {
         // some code goes here
         // not necessary for lab1|lab2
-
-        // if (commit) {
-        //     try {
-        //         flushPages(tid);
-        //     } catch (IOException e) {
-        //         throw new RuntimeException("Failed to flush pages during commit", e);
-        //     }
-        // } else {
-        //     // Abort: discard dirty pages associated with this transaction
-        //     Iterator<PageId> pidIterator = LRUList.iterator();
-        //     Iterator<Page> pageIterator = pagesList.iterator();
-        //     while (pidIterator.hasNext()) {
-        //         Page page = pageIterator.next();
-        //         if (page.isDirty() != null && page.isDirty().equals(tid)) {
-        //             pidIterator.remove();
-        //             pageIterator.remove();
-        //         }
-        //     }
-        // }
+        synchronized (this) {
+            if (commit) {
+                try {
+                    flushPages(tid);
+                } catch (IOException e) {
+                    throw new RuntimeException("Failed to flush pages during commit", e);
+                }
+            } else {
+                // Abort: discard dirty pages associated with this transaction
+                // Use a single iterator and remove from both lists at the same index
+                Iterator<Page> pageIterator = pagesList.iterator();
+                while (pageIterator.hasNext()) {
+                    Page page = pageIterator.next();
+                    if (page.isDirty() != null && page.isDirty().equals(tid)) {
+                        int index = pagesList.indexOf(page);
+                        pageIterator.remove();
+                        LRUList.remove(index);
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -348,5 +346,4 @@ public class BufferPool {
             }
         }
     }
-
 }
