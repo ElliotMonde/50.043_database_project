@@ -333,7 +333,7 @@ public class BufferPool {
         // not necessary for lab1
         for (int i = 0; i < pagesList.size(); i++) {
             Page page = pagesList.get(i);
-            if (page.isDirty() == null) {  // Only evict clean pages
+            if (page.isDirty() == null) {  
                 PageId pid = page.getId();
                 discardPage(pid);
                 return;
