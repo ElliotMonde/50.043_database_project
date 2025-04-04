@@ -169,8 +169,6 @@ public class BufferPool {
                     throw new RuntimeException("Failed to flush pages during commit", e);
                 }
             } else {
-                // Abort: discard dirty pages associated with this transaction
-                // Use a single iterator and remove from both lists at the same index
                 Iterator<Page> pageIterator = pagesList.iterator();
                 while (pageIterator.hasNext()) {
                     Page page = pageIterator.next();
@@ -333,16 +331,12 @@ public class BufferPool {
     private synchronized void evictPage() throws DbException {
         // some code goes here
         // not necessary for lab1
-        if (!pagesList.isEmpty()){
-            Page p = pagesList.get(0);
-            PageId pid = p.getId();
-            if (p.isDirty() != null){
-                try {
-                    flushPage(pid);
-                } catch (IOException e) {
-                    throw new DbException("Failed to evict page from bufferpool.");
-                }
+        for (int i = 0; i < pagesList.size(); i++) {
+            Page page = pagesList.get(i);
+            if (page.isDirty() == null) {  // Only evict clean pages
+                PageId pid = page.getId();
                 discardPage(pid);
+                return;
             }
         }
     }
