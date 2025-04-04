@@ -1,4 +1,3 @@
-
 package simpledb.storage;
 
 import java.io.*;
@@ -6,6 +5,8 @@ import java.util.*;
 import simpledb.common.Database;
 import simpledb.common.DbException;
 import simpledb.common.Permissions;
+import simpledb.transaction.LockManager;
+import simpledb.transaction.RWLock;
 import simpledb.transaction.TransactionAbortedException;
 import simpledb.transaction.TransactionId;
 
@@ -20,7 +21,6 @@ import simpledb.transaction.TransactionId;
  *
  * @Threadsafe, all fields are final
  */
-
 public class BufferPool {
 
     /**
@@ -40,6 +40,7 @@ public class BufferPool {
     private List<PageId> LRUList;
     private List<Page> pagesList;
     private int size = DEFAULT_PAGE_SIZE;
+    private LockManager lockManager;
 
     /**
      * Creates a BufferPool that caches up to numPages pages.
@@ -51,6 +52,8 @@ public class BufferPool {
         size = numPages;
         LRUList = new ArrayList<>(size);
         pagesList = new ArrayList<>(size);
+        lockManager = new LockManager();
+
     }
 
     public static int getPageSize() {
@@ -85,23 +88,29 @@ public class BufferPool {
             throws TransactionAbortedException, DbException {
         // some code goes here
         Page page;
-        synchronized (tid) {
+        // acquire lock
+        lockManager.acquireLock(pid, tid, perm);
+        synchronized (this) {
             if (LRUList.contains(pid)) {
                 int pageIndex = LRUList.indexOf(pid);
                 page = pagesList.get(pageIndex);
-                page.markDirty(true, tid);
             } else {
                 if (pagesList.size() == size) {
                     evictPage();
                 }
                 DbFile dbFile = Database.getCatalog().getDatabaseFile(pid.getTableId());
                 page = dbFile.readPage(pid);
-                page.markDirty(true, tid);
-                pagesList.add(page);
-                LRUList.add(pid);
             }
+            if (perm == Permissions.READ_WRITE) {
+                page.markDirty(true, tid);
+            }
+            if (size <= pagesList.size()) {
+                evictPage();
+            }
+            putPage(page);
+            // release lock in transaction complete
+            return page;
         }
-        return page;
     }
 
     /**
@@ -116,13 +125,15 @@ public class BufferPool {
         // some code goes here
         // not necessary for lab1|lab2
 
-        int index = LRUList.indexOf(pid);
-        if (index != -1) {
-            Page page = pagesList.get(index);
-            if (page.isDirty() != null && page.isDirty().equals(tid)) {
-                page.markDirty(false, null);
-            }
-        }
+        // int index = LRUList.indexOf(pid);
+        // if (index != -1) {
+        //     Page page = pagesList.get(index);
+        //     if (page.isDirty() != null && page.isDirty().equals(tid)) {
+        //         page.markDirty(false, null);
+        //     }
+        // }
+        lockManager.releaseLock(pid, tid, Permissions.READ_ONLY);
+        lockManager.releaseLock(pid, tid, Permissions.READ_WRITE);
     }
 
     /**
@@ -143,12 +154,7 @@ public class BufferPool {
     public boolean holdsLock(TransactionId tid, PageId p) {
         // some code goes here
         // not necessary for lab1|lab2
-        int index = LRUList.indexOf(p);
-        if (index != -1) {
-            Page page = pagesList.get(index);
-            return page.isDirty() != null && page.isDirty().equals(tid);
-        }
-        return false;
+        return lockManager.hasPageLock(p, tid);
     }
 
     /**
@@ -161,24 +167,27 @@ public class BufferPool {
     public void transactionComplete(TransactionId tid, boolean commit) {
         // some code goes here
         // not necessary for lab1|lab2
-        synchronized (this) {
-            if (commit) {
-                try {
-                    flushPages(tid);
-                } catch (IOException e) {
-                    throw new RuntimeException("Failed to flush pages during commit", e);
-                }
-            } else {
-                Iterator<Page> pageIterator = pagesList.iterator();
-                while (pageIterator.hasNext()) {
-                    Page page = pageIterator.next();
-                    if (page.isDirty() != null && page.isDirty().equals(tid)) {
-                        int index = pagesList.indexOf(page);
-                        pageIterator.remove();
-                        LRUList.remove(index);
-                    }
+
+        if (commit) {
+            try {
+                flushPages(tid);
+            } catch (IOException e) {
+                throw new RuntimeException("Failed to flush pages during commit", e);
+            }
+        }
+        Set<PageId> pgSet = lockManager.getTransactionPIDs(tid);
+        for (PageId pid : pgSet) {
+            RWLock lock = lockManager.getLock(pid);
+            if (holdsLock(tid, pid)) {
+                if (lock.canReadWrite(tid)) {
+                    lockManager.releaseLock(pid, tid, Permissions.READ_WRITE);
+                } else if (lock.canRead(tid)) {
+                    lockManager.releaseLock(pid, tid, Permissions.READ_ONLY);
                 }
             }
+            int ind = LRUList.indexOf(pid);
+            pagesList.remove(ind);
+            LRUList.remove(pid);
         }
     }
 
@@ -201,7 +210,7 @@ public class BufferPool {
             throws DbException, IOException, TransactionAbortedException {
         DbFile f = Database.getCatalog().getDatabaseFile(tableId);
         List<Page> dirtiedPages = f.insertTuple(tid, t);
-        for (Page p : dirtiedPages){
+        for (Page p : dirtiedPages) {
             p.markDirty(true, tid);
             putPage(p);
         }
@@ -210,13 +219,15 @@ public class BufferPool {
     }
 
     /**
-     * Helper method to assist putting page into bufferpool. Does LRU swap if bufferpool full.
+     * Helper method to assist putting page into bufferpool. Does LRU swap if
+     * bufferpool full.
+     *
      * @param p the page to put into bufferpool
      */
-    public void putPage(Page p) throws DbException{
+    public void putPage(Page p) throws DbException {
         PageId pid = p.getId();
-        for (int i = 0; i < LRUList.size(); i++){
-            if (LRUList.get(i).equals(pid)){ // if page is in bufferpool, remove it and add the dirtied/updated one to the tail of bufferpool (LRU is start of list)
+        for (int i = 0; i < LRUList.size(); i++) {
+            if (LRUList.get(i).equals(pid)) { // if page is in bufferpool, remove it and add the dirtied/updated one to the tail of bufferpool (LRU is start of list)
                 pagesList.remove(i);
                 LRUList.remove(i);
                 pagesList.add(p);
@@ -225,11 +236,12 @@ public class BufferPool {
             }
         }
 
-        if (pagesList.size() >= this.size){ // if bufferpool is full, evict the LRU (head of list) using evictPage, then add the dirtied page to bufferpool
+        if (pagesList.size() >= this.size) { // if bufferpool is full, evict the LRU (head of list) using evictPage, then add the dirtied page to bufferpool
             evictPage();
         }
         LRUList.add(pid);
         pagesList.add(p);
+        
     }
 
     /**
@@ -251,7 +263,7 @@ public class BufferPool {
         PageId pid = t.getRecordId().getPageId();
         DbFile f = Database.getCatalog().getDatabaseFile(pid.getTableId());
         List<Page> dirtiedPages = f.deleteTuple(tid, t);
-        for (Page p : dirtiedPages){
+        for (Page p : dirtiedPages) {
             p.markDirty(true, tid);
             putPage(p);
         }
@@ -266,8 +278,8 @@ public class BufferPool {
     public synchronized void flushAllPages() throws IOException {
         // some code goes here
         // not necessary for lab1
-        for (Page p: pagesList){
-            if (p.isDirty() != null){
+        for (Page p : pagesList) {
+            if (p.isDirty() != null) {
                 flushPage(p.getId());
             }
         }
@@ -337,7 +349,17 @@ public class BufferPool {
                 PageId pid = page.getId();
                 discardPage(pid);
                 return;
+        if (!pagesList.isEmpty()) {
+            Page p = pagesList.get(0);
+            PageId pid = p.getId();
+            if (p.isDirty() != null) {
+                try {
+                    flushPage(pid);
+                } catch (IOException e) {
+                    throw new DbException("Failed to evict page from bufferpool.");
+                }
             }
+            discardPage(pid);
         }
     }
 }
