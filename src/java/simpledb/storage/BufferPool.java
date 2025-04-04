@@ -342,16 +342,22 @@ public class BufferPool {
         // some code goes here
         // not necessary for lab1
         if (!pagesList.isEmpty()) {
-            Page p = pagesList.get(0);
-            PageId pid = p.getId();
-            if (p.isDirty() != null) {
-                try {
-                    flushPage(pid);
-                } catch (IOException e) {
-                    throw new DbException("Failed to evict page from bufferpool.");
+            boolean evicted = false;
+            for (int i = 0; i < LRUList.size(); i++) {
+                PageId pid = LRUList.get(i);
+                Page p = pagesList.get(i);
+                if (p.isDirty() == null) { //page is clean
+                    try{
+                        discardPage(pid);  
+                        return;
+                    }catch (IOException e) {
+                        throw new DbException("Failed to evict page from bufferpool.");
+                    }
                 }
             }
-            discardPage(pid);
+            if (!evicted){
+                throw new DbException("No clean pages");
+            }
         }
     }
 
