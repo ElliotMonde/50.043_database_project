@@ -10,10 +10,12 @@ public class LockManager {
 
     private HashMap<PageId, RWLock> pageLockMap;
     private HashMap<TransactionId, Set<PageId>> tidMap;
+    private HashMap<TransactionId, Set<TransactionId>> waitForGraph;
 
     public LockManager() {
         pageLockMap = new HashMap<>();
         tidMap = new HashMap<>();
+        waitForGraph = new HashMap<>();
     }
 
     public void acquireLock(PageId pid, TransactionId tid, Permissions perm) {
@@ -110,5 +112,52 @@ public class LockManager {
 
     public boolean hasPageLock(PageId pid, TransactionId tid) {
         return getTransactionPIDs(tid).contains(pid);
+    }
+
+    // waitForGraph Operations and Deadlock Resolving
+
+    private void addToWaitForGraph(TransactionId tid,TransactionId tidWithResource){
+        if (!waitForGraph.containsKey(tid)) {
+            waitForGraph.put(tid, new HashSet<>());
+        }
+        waitForGraph.get(tid).add(tidWithResource);
+    }
+
+    private boolean hasCycleInGraph(){
+        Set<TransactionId> visited = new HashSet<>();
+        Set<TransactionId> stack = new HashSet<>();
+        for (TransactionId tid : waitForGraph.keySet()) {
+            if (!visited.contains(tid)) {
+                if (detectCycleDFS(tid, visited, stack)) {
+                    return true; 
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean detectCycleDFS(TransactionId tid, Set<TransactionId> visited, Set<TransactionId> stack) {
+        visited.add(tid);
+        stack.add(tid);
+        for (TransactionId neighbour : waitForGraph.getOrDefault(tid, new HashSet<>())) {
+            if (!visited.contains(neighbour)) {
+                if (detectCycleDFS(neighbour, visited, stack)) {
+                    return true;
+                }
+            } else if (stack.contains(neighbour)) {
+                return true;
+            }
+        }
+        stack.remove(tid);
+        return false;
+    }
+
+    private void removeFromWaitForGraph(TransactionId tid, TransactionId otherTid) {
+        if (waitForGraph.containsKey(tid)) {
+            waitForGraph.get(tid).remove(otherTid);
+            if (waitForGraph.get(tid).isEmpty()) {
+                waitForGraph.remove(tid);
+            }
+        }
     }
 }
