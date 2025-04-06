@@ -82,4 +82,13 @@ public class RWLock {
     public synchronized boolean canReadWrite(TransactionId tid) {
         return holderTIDs.containsKey(tid) && holderTIDs.get(tid);
     }
+
+    public synchronized boolean heldByOtherTransaction(TransactionId tid){
+        for (TransactionId holder : lockHolders()){
+            if (!holder.equals(tid)) {
+                return true;
+            }
+        }
+        return false;
+    }
 }

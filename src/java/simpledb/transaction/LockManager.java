@@ -40,45 +40,72 @@ public class LockManager {
         }
     }
 
-    public void acquireReadLock(PageId pid, TransactionId tid) {
+    public void acquireReadLock(PageId pid, TransactionId tid) throws TransactionAbortedException{
         if (tidMap.containsKey(tid) && tidMap.get(tid).contains(pid)) {
             return;
         }
-        if (!hasPageLock(pid, tid)) {
-            RWLock lock = getLockOrDefault(pid, tid);
-            lock.acquireReadLock(tid);
-            addToTIDMap(pid, tid);
-        } else {
-            RWLock lock = pageLockMap.get(pid);
-            if (!lock.canRead(tid)) {
-                lock.acquireReadLock(tid);
+        RWLock lock = getLockOrDefault(pid, tid);
+        if (lock.heldByOtherTransaction(tid)) {
+            for (TransactionId holder : lock.lockHolders()) {
+                if (!holder.equals(tid)) {
+                    addToWaitForGraph(tid, holder);
+                }
             }
+            if (hasCycleInGraph()) {
+                throw new TransactionAbortedException();
+            }
+        }
+        lock.acquireReadLock(tid);
+        addToTIDMap(pid, tid);
+        for (TransactionId holder : lock.lockHolders()) {
+            removeFromWaitForGraph(tid, holder);
         }
     }
 
-    public void acquireReadWriteLock(PageId pid, TransactionId tid) {
-        if (!hasPageLock(pid, tid)) {
-            RWLock lock = getLockOrDefault(pid, tid);
+    public void acquireReadWriteLock(PageId pid, TransactionId tid) throws TransactionAbortedException{
+        RWLock lock = getLockOrDefault(pid, tid);
+        if (!lock.canReadWrite(tid)) {
+            if (lock.heldByOtherTransaction(tid)) {
+                for (TransactionId holder : lock.lockHolders()) {
+                    if (!holder.equals(tid)) {
+                        addToWaitForGraph(tid, holder);
+                    }
+                }
+                if (hasCycleInGraph()) {
+                    throw new TransactionAbortedException();
+                }
+            }
+    
             lock.acquireReadWriteLock(tid);
-            addToTIDMap(pid, tid);
-        } else {
-            RWLock lock = pageLockMap.get(pid);
-            if (!lock.canReadWrite(tid)) {
-                lock.acquireReadWriteLock(tid);
+        }
+        addToTIDMap(pid, tid);
+        for (TransactionId holder : lock.lockHolders()) {
+            if (!holder.equals(tid)) {
+                removeFromWaitForGraph(tid, holder);
             }
         }
     }
 
     public void releaseReadLock(PageId pid, TransactionId tid) {
-            RWLock lock = pageLockMap.get(pid);
-            lock.readUnlock(tid);
-            removeFromTIDMap(pid, tid);
+        RWLock lock = pageLockMap.get(pid);
+        lock.readUnlock(tid);
+        removeFromTIDMap(pid, tid);
+        for (TransactionId holder : lock.lockHolders()) {
+            if (!holder.equals(tid)) {
+                removeFromWaitForGraph(tid, holder);
+            }
+        }
     }
 
     public void releaseReadWriteLock(PageId pid, TransactionId tid) {
         RWLock lock = pageLockMap.get(pid);
         lock.readWriteUnlock(tid);
         removeFromTIDMap(pid, tid);
+        for (TransactionId holder : lock.lockHolders()) {
+            if (!holder.equals(tid)) {
+                removeFromWaitForGraph(tid, holder);
+            }
+        }
     }
 
     public RWLock getLockOrDefault(PageId pid, TransactionId tid) {
