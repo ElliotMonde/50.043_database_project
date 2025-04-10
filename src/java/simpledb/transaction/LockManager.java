@@ -1,21 +1,25 @@
 package simpledb.transaction;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+
+import simpledb.common.Database;
 import simpledb.common.Permissions;
 import simpledb.storage.PageId;
 
 public class LockManager {
 
-    private HashMap<PageId, RWLock> pageLockMap;
-    private HashMap<TransactionId, Set<PageId>> tidMap;
-    private HashMap<TransactionId, Set<TransactionId>> waitForGraph;
+    private ConcurrentHashMap<PageId, RWLock> pageLockMap;
+    private ConcurrentHashMap<TransactionId, Set<PageId>> tidMap;
+    private ConcurrentHashMap<TransactionId, Set<TransactionId>> waitForGraph;
 
     public LockManager() {
-        pageLockMap = new HashMap<>();
-        tidMap = new HashMap<>();
-        waitForGraph = new HashMap<>();
+        pageLockMap = new ConcurrentHashMap<>();
+        tidMap = new ConcurrentHashMap<>();
+        waitForGraph = new ConcurrentHashMap<>();
     }
 
     public void acquireLock(PageId pid, TransactionId tid, Permissions perm) {
@@ -40,29 +44,36 @@ public class LockManager {
         }
     }
 
-    public void acquireReadLock(PageId pid, TransactionId tid) throws TransactionAbortedException{
-        if (tidMap.containsKey(tid) && tidMap.get(tid).contains(pid)) {
-            return;
-        }
+    public void acquireReadLock(PageId pid, TransactionId tid) {
         RWLock lock = getLockOrDefault(pid, tid);
-        if (lock.heldByOtherTransaction(tid)) {
-            for (TransactionId holder : lock.lockHolders()) {
-                if (!holder.equals(tid)) {
-                    addToWaitForGraph(tid, holder);
+        if (!lock.canRead(tid)) {
+            if (lock.heldByOtherTransaction(tid)) {
+                for (TransactionId holder : lock.lockHolders()) {
+                    if (!holder.equals(tid)) {
+                        addToWaitForGraph(tid, holder);
+                    }
+                }
+                try {
+                    if (hasCycleInGraph()) {
+                        throw new TransactionAbortedException();
+                    }
+                } catch (TransactionAbortedException e) {
+                    handleDeadlock(tid);
+                    return;
                 }
             }
-            if (hasCycleInGraph()) {
-                throw new TransactionAbortedException();
-            }
+            lock.acquireReadLock(tid);
         }
-        lock.acquireReadLock(tid);
         addToTIDMap(pid, tid);
         for (TransactionId holder : lock.lockHolders()) {
-            removeFromWaitForGraph(tid, holder);
+            if (!holder.equals(tid)) {
+                removeFromWaitForGraph(tid, holder);
+            }
         }
     }
 
-    public void acquireReadWriteLock(PageId pid, TransactionId tid) throws TransactionAbortedException{
+
+    public void acquireReadWriteLock(PageId pid, TransactionId tid) {
         RWLock lock = getLockOrDefault(pid, tid);
         if (!lock.canReadWrite(tid)) {
             if (lock.heldByOtherTransaction(tid)) {
@@ -71,11 +82,15 @@ public class LockManager {
                         addToWaitForGraph(tid, holder);
                     }
                 }
-                if (hasCycleInGraph()) {
-                    throw new TransactionAbortedException();
+                try {
+                    if (hasCycleInGraph()) {
+                        throw new TransactionAbortedException();
+                    }
+                } catch (TransactionAbortedException e) {
+                    handleDeadlock(tid);
+                    return;
                 }
             }
-    
             lock.acquireReadWriteLock(tid);
         }
         addToTIDMap(pid, tid);
@@ -143,20 +158,20 @@ public class LockManager {
 
     // waitForGraph Operations and Deadlock Resolving
 
-    private void addToWaitForGraph(TransactionId tid,TransactionId tidWithResource){
+    private void addToWaitForGraph(TransactionId tid, TransactionId tidWithResource) {
         if (!waitForGraph.containsKey(tid)) {
             waitForGraph.put(tid, new HashSet<>());
         }
         waitForGraph.get(tid).add(tidWithResource);
     }
 
-    private boolean hasCycleInGraph(){
+    private boolean hasCycleInGraph() {
         Set<TransactionId> visited = new HashSet<>();
         Set<TransactionId> stack = new HashSet<>();
         for (TransactionId tid : waitForGraph.keySet()) {
             if (!visited.contains(tid)) {
                 if (detectCycleDFS(tid, visited, stack)) {
-                    return true; 
+                    return true;
                 }
             }
         }
@@ -186,5 +201,11 @@ public class LockManager {
                 waitForGraph.remove(tid);
             }
         }
+    }
+
+    private void handleDeadlock(TransactionId tid) {
+        System.err.println("Deadlock detected for transaction" + tid);
+        Database.getBufferPool().transactionComplete(tid, false);
+        System.err.println("Latest Transaction Aborted " + tid);
     }
 }
