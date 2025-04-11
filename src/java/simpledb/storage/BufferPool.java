@@ -6,7 +6,7 @@ import simpledb.common.Database;
 import simpledb.common.DbException;
 import simpledb.common.Permissions;
 import simpledb.transaction.LockManager;
-import simpledb.transaction.RWLock;
+//import simpledb.transaction.RWLock;
 import simpledb.transaction.TransactionAbortedException;
 import simpledb.transaction.TransactionId;
 
@@ -140,6 +140,7 @@ public class BufferPool {
      * Release all locks associated with a given transaction.
      *
      * @param tid the ID of the transaction requesting the unlock
+     * Should ALWAYS commit, can just call trnsactionComplete(true)
      */
     public void transactionComplete(TransactionId tid) {
         // some code goes here
@@ -167,26 +168,30 @@ public class BufferPool {
         // some code goes here
         // not necessary for lab1|lab2
 
-        if (commit) {
+        synchronized (this) {
             try {
-                flushPages(tid);
-            } catch (IOException e) {
-                throw new RuntimeException("Failed to flush pages during commit", e);
+                if (commit) {
+                    flushPages(tid);
+                } else {
+                    for (int i = 0; i < pagesList.size(); i++) {
+                        Page page = pagesList.get(i);
+                        PageId pid = page.getId();
+                        if (page.isDirty() != null && page.isDirty().equals(tid)) {
+                            discardPage(pid);
+                            DbFile dbFile = Database.getCatalog().getDatabaseFile(pid.getTableId());
+                            Page cleanPage = dbFile.readPage(pid);
+                            putPage(cleanPage);
+                        }
+                    }
+                }
+            } catch (IOException | DbException e) {
+                e.printStackTrace();
             }
-        }
-        Set<PageId> pgSet = lockManager.getTransactionPIDs(tid);
-        for (PageId pid : pgSet) {
-            RWLock lock = lockManager.getLock(pid);
-            if (holdsLock(tid, pid)) {
-                if (lock.canReadWrite(tid)) {
-                    lockManager.releaseLock(pid, tid, Permissions.READ_WRITE);
-                } else if (lock.canRead(tid)) {
-                    lockManager.releaseLock(pid, tid, Permissions.READ_ONLY);
+            for (PageId pid : LRUList) {
+                if (holdsLock(tid, pid)) {
+                    unsafeReleasePage(tid, pid);
                 }
             }
-            int ind = LRUList.indexOf(pid);
-            pagesList.remove(ind);
-            LRUList.remove(pid);
         }
     }
 
@@ -240,6 +245,7 @@ public class BufferPool {
         }
         LRUList.add(pid);
         pagesList.add(p);
+        
     }
 
     /**
@@ -342,17 +348,22 @@ public class BufferPool {
         // some code goes here
         // not necessary for lab1
         if (!pagesList.isEmpty()) {
-            Page p = pagesList.get(0);
-            PageId pid = p.getId();
-            if (p.isDirty() != null) {
-                try {
-                    flushPage(pid);
-                } catch (IOException e) {
-                    throw new DbException("Failed to evict page from bufferpool.");
+            boolean evicted = false;
+            for (int i = 0; i < LRUList.size(); i++) {
+                PageId pid = LRUList.get(i);
+                Page p = pagesList.get(i);
+                if (p.isDirty() == null) { //page is clean
+                    try{
+                        discardPage(pid);  
+                        return;
+                    }catch (ArrayIndexOutOfBoundsException e) {
+                        throw new DbException("Failed to evict page from bufferpool.");
+                    }
                 }
             }
-            discardPage(pid);
+            if (!evicted){
+                throw new DbException("No clean pages");
+            }
         }
     }
-
 }
