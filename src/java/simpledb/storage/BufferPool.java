@@ -80,8 +80,8 @@ public class BufferPool {
      * buffer pool, a page should be evicted and the new page should be added in
      * its place.
      *
-     * @param tid the ID of the transaction requesting the page
-     * @param pid the ID of the requested page
+     * @param tid  the ID of the transaction requesting the page
+     * @param pid  the ID of the requested page
      * @param perm the requested permissions on the page
      */
     public Page getPage(TransactionId tid, PageId pid, Permissions perm)
@@ -89,8 +89,13 @@ public class BufferPool {
         // some code goes here
         Page page;
         // acquire lock
-        lockManager.acquireLock(pid, tid, perm);
+        try {
+            lockManager.acquireLock(pid, tid, perm);
+        } catch (Exception e) {
+            throw new TransactionAbortedException();
+        }
         synchronized (this) {
+            lockManager.acquireLock(pid, tid, perm);
             if (LRUList.contains(pid)) {
                 int pageIndex = LRUList.indexOf(pid);
                 page = pagesList.get(pageIndex);
@@ -127,10 +132,10 @@ public class BufferPool {
 
         // int index = LRUList.indexOf(pid);
         // if (index != -1) {
-        //     Page page = pagesList.get(index);
-        //     if (page.isDirty() != null && page.isDirty().equals(tid)) {
-        //         page.markDirty(false, null);
-        //     }
+        // Page page = pagesList.get(index);
+        // if (page.isDirty() != null && page.isDirty().equals(tid)) {
+        // page.markDirty(false, null);
+        // }
         // }
         lockManager.releaseLock(pid, tid, Permissions.READ_ONLY);
         lockManager.releaseLock(pid, tid, Permissions.READ_WRITE);
@@ -140,7 +145,7 @@ public class BufferPool {
      * Release all locks associated with a given transaction.
      *
      * @param tid the ID of the transaction requesting the unlock
-     * Should ALWAYS commit, can just call trnsactionComplete(true)
+     *            Should ALWAYS commit, can just call trnsactionComplete(true)
      */
     public void transactionComplete(TransactionId tid) {
         // some code goes here
@@ -161,7 +166,7 @@ public class BufferPool {
      * Commit or abort a given transaction; release all locks associated to the
      * transaction.
      *
-     * @param tid the ID of the transaction requesting the unlock
+     * @param tid    the ID of the transaction requesting the unlock
      * @param commit a flag indicating whether we should commit or abort
      */
     public void transactionComplete(TransactionId tid, boolean commit) {
@@ -206,9 +211,9 @@ public class BufferPool {
      * dirtied to the cache (replacing any existing versions of those pages) so
      * that future requests see up-to-date pages.
      *
-     * @param tid the transaction adding the tuple
+     * @param tid     the transaction adding the tuple
      * @param tableId the table to add the tuple to
-     * @param t the tuple to add
+     * @param t       the tuple to add
      */
     public void insertTuple(TransactionId tid, int tableId, Tuple t)
             throws DbException, IOException, TransactionAbortedException {
@@ -231,7 +236,8 @@ public class BufferPool {
     public void putPage(Page p) throws DbException {
         PageId pid = p.getId();
         for (int i = 0; i < LRUList.size(); i++) {
-            if (LRUList.get(i).equals(pid)) { // if page is in bufferpool, remove it and add the dirtied/updated one to the tail of bufferpool (LRU is start of list)
+            if (LRUList.get(i).equals(pid)) { // if page is in bufferpool, remove it and add the dirtied/updated one to
+                                              // the tail of bufferpool (LRU is start of list)
                 pagesList.remove(i);
                 LRUList.remove(i);
                 pagesList.add(p);
@@ -240,12 +246,13 @@ public class BufferPool {
             }
         }
 
-        if (pagesList.size() >= this.size) { // if bufferpool is full, evict the LRU (head of list) using evictPage, then add the dirtied page to bufferpool
+        if (pagesList.size() >= this.size) { // if bufferpool is full, evict the LRU (head of list) using evictPage,
+                                             // then add the dirtied page to bufferpool
             evictPage();
         }
         LRUList.add(pid);
         pagesList.add(p);
-        
+
     }
 
     /**
@@ -259,7 +266,7 @@ public class BufferPool {
      * that future requests see up-to-date pages.
      *
      * @param tid the transaction deleting the tuple.
-     * @param t the tuple to delete
+     * @param t   the tuple to delete
      */
     public void deleteTuple(TransactionId tid, Tuple t)
             throws DbException, IOException, TransactionAbortedException {
@@ -352,16 +359,16 @@ public class BufferPool {
             for (int i = 0; i < LRUList.size(); i++) {
                 PageId pid = LRUList.get(i);
                 Page p = pagesList.get(i);
-                if (p.isDirty() == null) { //page is clean
-                    try{
-                        discardPage(pid);  
+                if (p.isDirty() == null) { // page is clean
+                    try {
+                        discardPage(pid);
                         return;
-                    }catch (ArrayIndexOutOfBoundsException e) {
+                    } catch (ArrayIndexOutOfBoundsException e) {
                         throw new DbException("Failed to evict page from bufferpool.");
                     }
                 }
             }
-            if (!evicted){
+            if (!evicted) {
                 throw new DbException("No clean pages");
             }
         }
