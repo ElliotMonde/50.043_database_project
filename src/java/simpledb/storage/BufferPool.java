@@ -89,12 +89,13 @@ public class BufferPool {
         // some code goes here
         Page page;
         // acquire lock
-        try {
-            lockManager.acquireLock(pid, tid, perm);
-        } catch (Exception e) {
-            throw new TransactionAbortedException();
-        }
         synchronized (this) {
+            try {
+                lockManager.acquireLock(pid, tid, perm);
+            } catch (Exception e) {
+                throw new TransactionAbortedException();
+            }
+
             lockManager.acquireLock(pid, tid, perm);
             if (LRUList.contains(pid)) {
                 int pageIndex = LRUList.indexOf(pid);
