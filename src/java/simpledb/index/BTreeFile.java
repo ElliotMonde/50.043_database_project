@@ -2,13 +2,12 @@ package simpledb.index;
 
 import java.io.*;
 import java.util.*;
-
 import simpledb.common.Database;
+import simpledb.common.DbException;
+import simpledb.common.Debug;
 import simpledb.common.Permissions;
 import simpledb.execution.IndexPredicate;
 import simpledb.execution.Predicate.Op;
-import simpledb.common.DbException;
-import simpledb.common.Debug;
 import simpledb.storage.*;
 import simpledb.transaction.TransactionAbortedException;
 import simpledb.transaction.TransactionId;
@@ -188,6 +187,29 @@ public class BTreeFile implements DbFile {
                                        Field f)
 					throws DbException, TransactionAbortedException {
 		// some code goes here
+		switch (pid.pgcateg()) {
+			case BTreePageId.INTERNAL:
+				BTreeInternalPage internalPage = (BTreeInternalPage) getPage(tid, dirtypages, pid,
+						Permissions.READ_ONLY);
+				Iterator<BTreeEntry> iter = internalPage.iterator();
+				if (iter == null || !iter.hasNext()) {
+					throw new DbException("no more entries to find.");
+				}
+				if (f == null) {
+					return findLeafPage(tid, dirtypages, iter.next().getLeftChild(), perm, f); //returns left most leaf page
+				}
+				while (iter.hasNext()) {
+					BTreeEntry entry = iter.next();
+					if (entry.getKey().compare(Op.GREATER_THAN_OR_EQ, f)) {
+						return findLeafPage(tid, dirtypages, entry.getLeftChild(), perm, f);
+					}
+				}
+				break;
+			case BTreePageId.LEAF:
+				return (BTreeLeafPage) getPage(tid, dirtypages, pid, perm);
+			default:
+				throw new DbException("Invalid BTreePage Category.");
+		}
         return null;
 	}
 	
@@ -239,6 +261,24 @@ public class BTreeFile implements DbFile {
 		// the new entry.  getParentWithEmtpySlots() will be useful here.  Don't forget to update
 		// the sibling pointers of all the affected leaf pages.  Return the page into which a 
 		// tuple with the given key field should be inserted.
+		int numTuples = page.getNumTuples() / 2;
+		Iterator<Tuple> iter = page.reverseIterator();
+		
+		BTreePageId pgId = page.getId();
+		BTreeLeafPage newPage = (BTreeLeafPage) getEmptyPage(tid, dirtypages, BTreePageId.LEAF);
+
+		while (numTuples > 0) {
+			if (!iter.hasNext()) {
+				throw new DbException("No more tuples in BTreeLeafPage iter.");
+			}
+			Tuple tp = iter.next();
+			page.deleteTuple(tp);
+			newPage.insertTuple(tp);
+			numTuples--;
+		}
+		
+		// update subsequent leaf siblings' page num
+
         return null;
 		
 	}
