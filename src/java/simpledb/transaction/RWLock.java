@@ -7,10 +7,12 @@ public class RWLock {
 
     private boolean exclusive; // current state: exclusive when 1 holders and read_write, exclusive is always read_write permissions, if read_only --> shared
     private HashMap<TransactionId, Boolean> holderTIDs; // tid, isholder
-
+    private int waitingWriters;
+    
     public RWLock() {
         exclusive = false;
         holderTIDs = new HashMap<>();
+        waitingWriters = 0;
     }
 
     public void acquireReadLock(TransactionId tid) {
@@ -19,12 +21,13 @@ public class RWLock {
                 return;
             }
             try {
-                while (exclusive) {
+                while (exclusive || waitingWriters > 0) {
                     this.wait();
                 }
                 holderTIDs.put(tid, false);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
+                throw new RuntimeException("Thread interrupted while acquiring RW lock", e);
             }
         }
     }
@@ -32,16 +35,22 @@ public class RWLock {
     public void acquireReadWriteLock(TransactionId tid) {
         synchronized (this) {
             try {
-                if (exclusive && holderTIDs.containsKey(tid)){ // if already holding rw lock
+                if (holderTIDs.getOrDefault(tid, false)) { // if already holding rw lock
                     return;
                 }
+                waitingWriters++;
                 while (exclusive || holderTIDs.size() > (holderTIDs.containsKey(tid) ? 1 : 0)) {
                     this.wait();
+                }
+                waitingWriters--;
+                if (waitingWriters < 0) {
+                    waitingWriters = 0;
                 }
                 exclusive = true;
                 holderTIDs.put(tid, true); // upgrade or put new
             } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+                Thread.currentThread().interrupt(); 
+                throw new RuntimeException("Thread interrupted while acquiring RW lock", e);
             }
         }
     }
@@ -50,10 +59,8 @@ public class RWLock {
         synchronized (this) {
             if (holderTIDs.containsKey(tid) && !holderTIDs.get(tid)) { // if holder of non-exclusive lock
                 holderTIDs.remove(tid);
-                if (holderTIDs.isEmpty()) { // only notify if empty, for threads waiting for write lock
-                    notifyAll();
-                }
             }
+            this.notifyAll();
         }
     }
 
@@ -62,8 +69,8 @@ public class RWLock {
             if (holderTIDs.containsKey(tid) && holderTIDs.get(tid)) {
                 holderTIDs.remove(tid);
                 exclusive = false;
-                notifyAll();
             }
+            this.notifyAll();
         }
     }
 

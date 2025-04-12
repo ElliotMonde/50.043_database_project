@@ -16,6 +16,10 @@ public class LockManager {
         tidMap = new HashMap<>();
     }
 
+    public boolean hasLock(PageId pid) {
+        return pageLockMap.containsKey(pid);
+    }
+
     public void acquireLock(PageId pid, TransactionId tid, Permissions perm) {
         switch (perm) {
             case READ_ONLY:
@@ -45,26 +49,26 @@ public class LockManager {
         if (!hasPageLock(pid, tid)) {
             RWLock lock = getLockOrDefault(pid, tid);
             lock.acquireReadLock(tid);
-            addToTIDMap(pid, tid);
         } else {
             RWLock lock = pageLockMap.get(pid);
             if (!lock.canRead(tid)) {
                 lock.acquireReadLock(tid);
             }
         }
+        addToTIDMap(pid, tid);
     }
 
     public void acquireReadWriteLock(PageId pid, TransactionId tid) {
         if (!hasPageLock(pid, tid)) {
             RWLock lock = getLockOrDefault(pid, tid);
             lock.acquireReadWriteLock(tid);
-            addToTIDMap(pid, tid);
         } else {
             RWLock lock = pageLockMap.get(pid);
             if (!lock.canReadWrite(tid)) {
                 lock.acquireReadWriteLock(tid);
             }
         }
+        addToTIDMap(pid, tid);
     }
 
     public void releaseReadLock(PageId pid, TransactionId tid) {
@@ -110,5 +114,15 @@ public class LockManager {
 
     public boolean hasPageLock(PageId pid, TransactionId tid) {
         return getTransactionPIDs(tid).contains(pid);
+    }
+
+    public HashSet<TransactionId> getLockHoldersTID(PageId pid) {
+        HashSet<TransactionId> holders = new HashSet<>();
+        for (HashMap.Entry<TransactionId, Set<PageId>> e : tidMap.entrySet()) {
+            if (e.getValue().contains(pid)) {
+                holders.add(e.getKey());
+            }
+        }
+        return holders;
     }
 }

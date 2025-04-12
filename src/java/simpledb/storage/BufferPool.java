@@ -6,7 +6,6 @@ import simpledb.common.Database;
 import simpledb.common.DbException;
 import simpledb.common.Permissions;
 import simpledb.transaction.LockManager;
-//import simpledb.transaction.RWLock;
 import simpledb.transaction.TransactionAbortedException;
 import simpledb.transaction.TransactionId;
 
@@ -41,7 +40,9 @@ public class BufferPool {
     private List<Page> pagesList;
     private int size = DEFAULT_PAGE_SIZE;
     private LockManager lockManager;
+    private DeadLockChecker deadLockChecker;
 
+    /* map<waiterTID, awaiting PID> */
     /**
      * Creates a BufferPool that caches up to numPages pages.
      *
@@ -53,7 +54,7 @@ public class BufferPool {
         LRUList = new ArrayList<>(size);
         pagesList = new ArrayList<>(size);
         lockManager = new LockManager();
-
+        deadLockChecker = new DeadLockChecker();
     }
 
     public static int getPageSize() {
@@ -80,8 +81,8 @@ public class BufferPool {
      * buffer pool, a page should be evicted and the new page should be added in
      * its place.
      *
-     * @param tid  the ID of the transaction requesting the page
-     * @param pid  the ID of the requested page
+     * @param tid the ID of the transaction requesting the page
+     * @param pid the ID of the requested page
      * @param perm the requested permissions on the page
      */
     public Page getPage(TransactionId tid, PageId pid, Permissions perm)
@@ -91,17 +92,30 @@ public class BufferPool {
         // acquire lock
         synchronized (this) {
             try {
+                HashSet<TransactionId> holdersSet = lockManager.getLockHoldersTID(pid);
+                if (lockManager.hasLock(pid) && !lockManager.getLock(pid).canReadWrite(tid)) {
+                    if (perm == Permissions.READ_WRITE || !lockManager.getLock(pid).canRead(tid)) {
+                        if (deadLockChecker.hasCycle(lockManager, tid, pid, perm)) {
+                            throw new TransactionAbortedException();
+                        }
+                    }
+                }
+                for (TransactionId holdersTID : holdersSet) {
+                    deadLockChecker.addWaiter(tid, holdersTID);
+                }
                 lockManager.acquireLock(pid, tid, perm);
+                for (TransactionId holderTID : holdersSet) {
+                    deadLockChecker.removeWaiter(tid, holderTID);
+                }
             } catch (Exception e) {
                 throw new TransactionAbortedException();
             }
 
-            lockManager.acquireLock(pid, tid, perm);
             if (LRUList.contains(pid)) {
                 int pageIndex = LRUList.indexOf(pid);
                 page = pagesList.get(pageIndex);
             } else {
-                if (pagesList.size() == size) {
+                while (pagesList.size() >= size) {
                     evictPage();
                 }
                 DbFile dbFile = Database.getCatalog().getDatabaseFile(pid.getTableId());
@@ -109,9 +123,6 @@ public class BufferPool {
             }
             if (perm == Permissions.READ_WRITE) {
                 page.markDirty(true, tid);
-            }
-            if (size <= pagesList.size()) {
-                evictPage();
             }
             putPage(page);
             // release lock in transaction complete
@@ -131,13 +142,6 @@ public class BufferPool {
         // some code goes here
         // not necessary for lab1|lab2
 
-        // int index = LRUList.indexOf(pid);
-        // if (index != -1) {
-        // Page page = pagesList.get(index);
-        // if (page.isDirty() != null && page.isDirty().equals(tid)) {
-        // page.markDirty(false, null);
-        // }
-        // }
         lockManager.releaseLock(pid, tid, Permissions.READ_ONLY);
         lockManager.releaseLock(pid, tid, Permissions.READ_WRITE);
     }
@@ -145,8 +149,8 @@ public class BufferPool {
     /**
      * Release all locks associated with a given transaction.
      *
-     * @param tid the ID of the transaction requesting the unlock
-     *            Should ALWAYS commit, can just call trnsactionComplete(true)
+     * @param tid the ID of the transaction requesting the unlock Should ALWAYS
+     * commit, can just call trnsactionComplete(true)
      */
     public void transactionComplete(TransactionId tid) {
         // some code goes here
@@ -167,7 +171,7 @@ public class BufferPool {
      * Commit or abort a given transaction; release all locks associated to the
      * transaction.
      *
-     * @param tid    the ID of the transaction requesting the unlock
+     * @param tid the ID of the transaction requesting the unlock
      * @param commit a flag indicating whether we should commit or abort
      */
     public void transactionComplete(TransactionId tid, boolean commit) {
@@ -212,9 +216,9 @@ public class BufferPool {
      * dirtied to the cache (replacing any existing versions of those pages) so
      * that future requests see up-to-date pages.
      *
-     * @param tid     the transaction adding the tuple
+     * @param tid the transaction adding the tuple
      * @param tableId the table to add the tuple to
-     * @param t       the tuple to add
+     * @param t the tuple to add
      */
     public void insertTuple(TransactionId tid, int tableId, Tuple t)
             throws DbException, IOException, TransactionAbortedException {
@@ -238,7 +242,7 @@ public class BufferPool {
         PageId pid = p.getId();
         for (int i = 0; i < LRUList.size(); i++) {
             if (LRUList.get(i).equals(pid)) { // if page is in bufferpool, remove it and add the dirtied/updated one to
-                                              // the tail of bufferpool (LRU is start of list)
+                // the tail of bufferpool (LRU is start of list)
                 pagesList.remove(i);
                 LRUList.remove(i);
                 pagesList.add(p);
@@ -248,7 +252,7 @@ public class BufferPool {
         }
 
         if (pagesList.size() >= this.size) { // if bufferpool is full, evict the LRU (head of list) using evictPage,
-                                             // then add the dirtied page to bufferpool
+            // then add the dirtied page to bufferpool
             evictPage();
         }
         LRUList.add(pid);
@@ -267,7 +271,7 @@ public class BufferPool {
      * that future requests see up-to-date pages.
      *
      * @param tid the transaction deleting the tuple.
-     * @param t   the tuple to delete
+     * @param t the tuple to delete
      */
     public void deleteTuple(TransactionId tid, Tuple t)
             throws DbException, IOException, TransactionAbortedException {
@@ -313,6 +317,10 @@ public class BufferPool {
             LRUList.remove(pid);
             pagesList.remove(ind);
         }
+        Set<TransactionId> holders = lockManager.getLockHoldersTID(pid);
+        for (TransactionId tid : holders) {
+            unsafeReleasePage(tid, pid);
+        }
         // not necessary for lab1
     }
 
@@ -355,23 +363,78 @@ public class BufferPool {
     private synchronized void evictPage() throws DbException {
         // some code goes here
         // not necessary for lab1
-        if (!pagesList.isEmpty()) {
-            boolean evicted = false;
-            for (int i = 0; i < LRUList.size(); i++) {
-                PageId pid = LRUList.get(i);
-                Page p = pagesList.get(i);
-                if (p.isDirty() == null) { // page is clean
-                    try {
-                        discardPage(pid);
-                        return;
-                    } catch (ArrayIndexOutOfBoundsException e) {
-                        throw new DbException("Failed to evict page from bufferpool.");
-                    }
+        for (int i = 0; i < LRUList.size(); i++) {
+            PageId pid = LRUList.get(i);
+            Page p = pagesList.get(i);
+            if (p.isDirty() == null) { // page is clean
+                try {
+                    flushPage(pid);
+                    discardPage(pid);
+                    return;
+                } catch (IOException e) {
+                    System.err.println("IOException in evictPage of BufferPool: " + e);
                 }
             }
-            if (!evicted) {
-                throw new DbException("No clean pages");
+        }
+        throw new DbException("No clean pages");
+    }
+}
+
+class DeadLockChecker {
+
+    private HashMap<TransactionId, HashSet<TransactionId>> waitForGraph;
+
+    DeadLockChecker() {
+        waitForGraph = new HashMap<>();
+    }
+
+    synchronized void addWaiter(TransactionId waiter, TransactionId waitOn) {
+        HashSet<TransactionId> waitingOnSet = waitForGraph.getOrDefault(waiter, new HashSet<>());
+        waitingOnSet.add(waitOn);
+        waitForGraph.put(waiter, waitingOnSet);
+    }
+
+    synchronized void removeWaiter(TransactionId waiter, TransactionId holder) {
+        if (waitForGraph.containsKey(waiter)) {
+            HashSet<TransactionId> holdersSet = waitForGraph.getOrDefault(waiter, new HashSet<>());
+            holdersSet.remove(holder);
+            if (holdersSet.isEmpty()) {
+                waitForGraph.remove(waiter);
+            } else {
+                waitForGraph.put(holder, holdersSet);
             }
         }
+    }
+
+    synchronized boolean hasCycle(LockManager lockManager, TransactionId tid, PageId pid, Permissions perm) {
+        if (!lockManager.getLock(pid).isExclusive() && perm == Permissions.READ_ONLY) {
+            return false;
+        }
+
+        ArrayList<TransactionId> visitedList = new ArrayList<>();
+        visitedList.add(tid);
+        HashSet<TransactionId> holdersSet = lockManager.getLockHoldersTID(pid);
+        holdersSet.remove(tid);
+        for (TransactionId holderTID : holdersSet) {
+            if (checkWaiting(new HashMap<>(waitForGraph),holderTID, new ArrayList<>(visitedList))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private synchronized boolean checkWaiting(HashMap<TransactionId, HashSet<TransactionId>> waitForGCopy, TransactionId waiter, ArrayList<TransactionId> visitedList) {
+        if (visitedList.contains(waiter)) {
+            return true;
+        }
+
+        visitedList.add(waiter);
+        HashSet<TransactionId> holdersSet = waitForGCopy.get(waiter);
+        for (TransactionId holderTID : holdersSet) {
+            if (checkWaiting(waitForGCopy, holderTID, new ArrayList<>(visitedList))) {
+                return true;
+            }
+        }
+        return false;
     }
 }
