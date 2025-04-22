@@ -299,64 +299,37 @@ public class BTreeFile implements DbFile {
 
 		// Create a new empty leaf page, move half of tuples to new page, uses reverse
 		// iterator to move tuples from end
-		// Create a new empty leaf page
 		BTreeLeafPage rightPage = (BTreeLeafPage) getEmptyPage(tid, dirtypages, BTreePageId.LEAF);
-
-		// Count the number of tuples to move
 		int numTuples = page.getNumTuples();
 		int moveCount = numTuples / 2;
-
-		// Move the tuples from the end of the left page to the right page
 		Iterator<Tuple> it = page.reverseIterator();
 		LinkedList<Tuple> tuples = new LinkedList<>();
-
-		// Collect tuples to move
 		for (int i = 0; i < moveCount && it.hasNext(); i++) {
 			tuples.add(it.next());
 		}
-
-		// Remove from left page and add to right page (in the correct order)
 		for (Tuple t : tuples) {
 			page.deleteTuple(t);
 			rightPage.insertTuple(t);
 		}
-
-		// Set the sibling pointers
 		BTreePageId rightSiblingId = page.getRightSiblingId();
 		rightPage.setRightSiblingId(rightSiblingId);
 		rightPage.setLeftSiblingId(page.getId());
 		page.setRightSiblingId(rightPage.getId());
-
-		// Update sibling pointer of the old right sibling
 		if (rightSiblingId != null) {
 			BTreeLeafPage rightSibling = (BTreeLeafPage) getPage(tid, dirtypages, rightSiblingId,
 					Permissions.READ_WRITE);
 			rightSibling.setLeftSiblingId(rightPage.getId());
 			dirtypages.put(rightSiblingId, rightSibling);
 		}
-
-		// Get the parent with empty slots
 		BTreeInternalPage parent = getParentWithEmptySlots(tid, dirtypages, page.getParentId(), field);
-
-		// Update parent pointers
 		page.setParentId(parent.getId());
 		rightPage.setParentId(parent.getId());
-
-		// Get the middle key - first key of right page for leaf nodes
 		Field middleKey = rightPage.iterator().next().getField(keyField);
-
-		// Insert entry into parent
 		BTreeEntry newEntry = new BTreeEntry(middleKey, page.getId(), rightPage.getId());
 		parent.insertEntry(newEntry);
-
-		// Update dirty pages map
 		dirtypages.put(page.getId(), page);
 		dirtypages.put(rightPage.getId(), rightPage);
 		dirtypages.put(parent.getId(), parent);
-
-		// Return the appropriate page based on key comparison
-		// For leaf pages with duplicate keys, we need to carefully determine which page
-		// to use
 		if (field.compare(Op.LESS_THAN, middleKey)) {
 			return page;
 		} else {
@@ -411,60 +384,35 @@ public class BTreeFile implements DbFile {
 		// should be inserted.
 		// Create a new internal page
 		BTreeInternalPage rightPage = (BTreeInternalPage) getEmptyPage(tid, dirtypages, BTreePageId.INTERNAL);
-
-		// Count the number of entries
 		int numEntries = page.getNumEntries();
-
-		// Collect all entries for processing
 		Iterator<BTreeEntry> it = page.iterator();
 		List<BTreeEntry> entries = new ArrayList<>();
 		while (it.hasNext()) {
 			entries.add(it.next());
 		}
-
-		// Find the entry to push up (middle entry)
 		int middleIndex = numEntries / 2;
 		BTreeEntry middleEntry = entries.get(middleIndex);
 		Field pushUpKey = middleEntry.getKey();
-
-		// Remove all entries from the original page
 		for (BTreeEntry e : entries) {
 			page.deleteKeyAndRightChild(e);
 		}
-
-		// Reinsert entries into appropriate pages
 		for (int i = 0; i < entries.size(); i++) {
 			BTreeEntry e = entries.get(i);
 			if (i < middleIndex) {
-				// Entry belongs in left page
 				page.insertEntry(e);
 			} else if (i > middleIndex) {
-				// Entry belongs in right page
 				rightPage.insertEntry(e);
 			}
-			// The middle entry will be pushed up to parent
 		}
-
-		// Get or create parent with empty slots
 		BTreeInternalPage parent = getParentWithEmptySlots(tid, dirtypages, page.getParentId(), field);
-
-		// Set parent pointers
 		page.setParentId(parent.getId());
 		rightPage.setParentId(parent.getId());
-
-		// Insert new entry in parent
 		BTreeEntry newParentEntry = new BTreeEntry(pushUpKey, page.getId(), rightPage.getId());
 		parent.insertEntry(newParentEntry);
-
-		// Update the parent pointers of all children moved to the right page
 		updateParentPointers(tid, dirtypages, rightPage);
-
-		// Mark pages as dirty
 		dirtypages.put(page.getId(), page);
 		dirtypages.put(rightPage.getId(), rightPage);
 		dirtypages.put(parent.getId(), parent);
-
-		// Return the appropriate page
 		if (field.compare(Op.LESS_THAN_OR_EQ, pushUpKey)) {
 			return page;
 		} else {
