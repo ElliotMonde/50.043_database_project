@@ -197,29 +197,44 @@ public class BTreeFile implements DbFile {
 		// some code goes here
 		switch (pid.pgcateg()) {
 			case BTreePageId.INTERNAL:
+				// Lock the internal page with READ_ONLY permission
 				BTreeInternalPage internalPage = (BTreeInternalPage) getPage(tid, dirtypages, pid,
 						Permissions.READ_ONLY);
 				Iterator<BTreeEntry> iter = internalPage.iterator();
-				if (iter == null || !iter.hasNext()) {
-					throw new DbException("no more entries to find.");
+
+				if (!iter.hasNext()) {
+					throw new DbException("Internal page has no entries.");
 				}
+
 				if (f == null) {
-					return findLeafPage(tid, dirtypages, iter.next().getLeftChild(), perm, f); // returns left most leaf
-																								// page
+					// If f is null, go to the leftmost leaf page
+					return findLeafPage(tid, dirtypages, iter.next().getLeftChild(), perm, f);
 				}
+
+				// Track last entry in case we need to take right child
+				BTreeEntry lastEntry = null;
 				while (iter.hasNext()) {
 					BTreeEntry entry = iter.next();
-					if (entry.getKey().compare(Op.GREATER_THAN_OR_EQ, f)) {
+					if (f.compare(Op.LESS_THAN, entry.getKey())) {
+						// Field is less than current entry's key → go left
 						return findLeafPage(tid, dirtypages, entry.getLeftChild(), perm, f);
 					}
+					lastEntry = entry; // update lastEntry as we go
 				}
-				break;
+
+				// If field >= all keys, go to right child of the last entry
+				if (lastEntry == null) {
+					throw new DbException("Failed to locate child pointer in internal node.");
+				}
+				return findLeafPage(tid, dirtypages, lastEntry.getRightChild(), perm, f);
+
 			case BTreePageId.LEAF:
+				// Once we reach the leaf, lock with the provided permission and return
 				return (BTreeLeafPage) getPage(tid, dirtypages, pid, perm);
+
 			default:
 				throw new DbException("Invalid BTreePage Category.");
 		}
-		return null;
 	}
 
 	/**
