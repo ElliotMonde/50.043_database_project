@@ -298,19 +298,22 @@ public class BTreeFile implements DbFile {
 		}
 
 		// Update sibling pointers for original page, new page, right sibling
-		BTreePageId oldRightSiblingId = page.getRightSiblingId();
-		if (oldRightSiblingId != null) {
-			BTreeLeafPage oldRightSibling = (BTreeLeafPage) getPage(tid, dirtypages, oldRightSiblingId,
+		BTreePageId rightSiblingId = page.getRightSiblingId();
+		if (rightSiblingId != null) {
+			BTreeLeafPage rightSibling = (BTreeLeafPage) getPage(tid, dirtypages, rightSiblingId,
 					Permissions.READ_WRITE);
-			oldRightSibling.setLeftSiblingId(newPage.getId());
-			newPage.setRightSiblingId(oldRightSiblingId);
+			rightSibling.setLeftSiblingId(newPage.getId());
+			dirtypages.put(rightSiblingId, rightSibling);
 		}
+		newPage.setRightSiblingId(rightSiblingId);
 		newPage.setLeftSiblingId(page.getId());
 		page.setRightSiblingId(newPage.getId());
 
 		// Get/create the parent page, copies first key aka first tuple from new page to
 		// parent, create and insert new key into parent
 		BTreeInternalPage parent = getParentWithEmptySlots(tid, dirtypages, page.getParentId(), field);
+		page.setParentId(parent.getId());
+		newPage.setParentId(parent.getId());
 		Iterator<Tuple> firstTupleIter = newPage.iterator();
 		if (!firstTupleIter.hasNext()) {
 			throw new DbException("Right page has no tuples after split!");
@@ -318,10 +321,10 @@ public class BTreeFile implements DbFile {
 		Field key = firstTupleIter.next().getField(keyField);
 		BTreeEntry entry = new BTreeEntry(key, page.getId(), newPage.getId());
 		parent.insertEntry(entry);
-
+		dirtypages.put(page.getId(), page);
+		dirtypages.put(newPage.getId(), newPage);
+		dirtypages.put(parent.getId(), parent);
 		// Update parent pointers
-		page.setParentId(parent.getId());
-		newPage.setParentId(parent.getId());
 		if (field.compare(Op.GREATER_THAN_OR_EQ, key)) {
 			return newPage;
 		} else {
@@ -367,7 +370,7 @@ public class BTreeFile implements DbFile {
 		// page and moving half of the entries to the new page. Push the middle key up
 		// into the parent page, and recursively split the parent as needed to
 		// accommodate
-		// the new entry. getParentWithEmtpySlots() will be useful here. Don't forget to
+		// the new entry. getParentWithEmptySlots() will be useful here. Don't forget to
 		// update
 		// the parent pointers of all the children moving to the new page.
 		// updateParentPointers()
