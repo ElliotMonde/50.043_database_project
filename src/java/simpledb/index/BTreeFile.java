@@ -299,42 +299,63 @@ public class BTreeFile implements DbFile {
 
 		// Create a new empty leaf page, move half of tuples to new page, uses reverse
 		// iterator to move tuples from end
+		// Create a new leaf page
 		BTreeLeafPage rightPage = (BTreeLeafPage) getEmptyPage(tid, dirtypages, BTreePageId.LEAF);
+
+		// Transfer tuples: Move the latter half to the new page
 		int numTuples = page.getNumTuples();
-		int moveCount = numTuples / 2;
-		Iterator<Tuple> it = page.reverseIterator();
-		LinkedList<Tuple> tuples = new LinkedList<>();
-		for (int i = 0; i < moveCount && it.hasNext(); i++) {
-			tuples.add(it.next());
+		int numToMove = numTuples / 2;
+		Iterator<Tuple> reverseIterator = page.reverseIterator();
+
+		List<Tuple> tuplesToMove = new ArrayList<>();
+		for (int i = 0; i < numToMove && reverseIterator.hasNext(); i++) {
+			tuplesToMove.add(reverseIterator.next());
 		}
-		for (Tuple t : tuples) {
+
+		// Insert tuples into the right page in original order
+		for (int i = tuplesToMove.size() - 1; i >= 0; i--) {
+			Tuple t = tuplesToMove.get(i);
 			page.deleteTuple(t);
 			rightPage.insertTuple(t);
 		}
-		BTreePageId rightSiblingId = page.getRightSiblingId();
-		rightPage.setRightSiblingId(rightSiblingId);
-		rightPage.setLeftSiblingId(page.getId());
+
+		// Update sibling pointers
+		BTreePageId oldRightSiblingId = page.getRightSiblingId();
 		page.setRightSiblingId(rightPage.getId());
-		if (rightSiblingId != null) {
-			BTreeLeafPage rightSibling = (BTreeLeafPage) getPage(tid, dirtypages, rightSiblingId,
+		rightPage.setLeftSiblingId(page.getId());
+		rightPage.setRightSiblingId(oldRightSiblingId);
+
+		// Update old right sibling's left pointer if it exists
+		if (oldRightSiblingId != null) {
+			BTreeLeafPage oldRightSibling = (BTreeLeafPage) getPage(tid, dirtypages, oldRightSiblingId,
 					Permissions.READ_WRITE);
-			rightSibling.setLeftSiblingId(rightPage.getId());
-			dirtypages.put(rightSiblingId, rightSibling);
+			oldRightSibling.setLeftSiblingId(rightPage.getId());
+			dirtypages.put(oldRightSiblingId, oldRightSibling);
 		}
-		BTreeInternalPage parent = getParentWithEmptySlots(tid, dirtypages, page.getParentId(), field);
+
+		// Determine the key to push up to parent
+		Iterator<Tuple> rightIterator = rightPage.iterator();
+		if (!rightIterator.hasNext()) {
+			throw new DbException("Split resulted in an empty right page.");
+		}
+		Field pushUpKey = rightIterator.next().getField(keyField);
+
+		// Update parent with the new entry
+		BTreeInternalPage parent = getParentWithEmptySlots(tid, dirtypages, page.getParentId(), pushUpKey);
+		BTreeEntry newEntry = new BTreeEntry(pushUpKey, page.getId(), rightPage.getId());
+		parent.insertEntry(newEntry);
+
+		// Set parent pointers for both pages
 		page.setParentId(parent.getId());
 		rightPage.setParentId(parent.getId());
-		Field middleKey = rightPage.iterator().next().getField(keyField);
-		BTreeEntry newEntry = new BTreeEntry(middleKey, page.getId(), rightPage.getId());
-		parent.insertEntry(newEntry);
+
+		// Add modified pages to dirtypages
 		dirtypages.put(page.getId(), page);
 		dirtypages.put(rightPage.getId(), rightPage);
 		dirtypages.put(parent.getId(), parent);
-		if (field.compare(Op.LESS_THAN, middleKey)) {
-			return page;
-		} else {
-			return rightPage;
-		}
+		Database.getBufferPool().flushAllPages();
+		// Decide which page the new tuple should go to
+		return (field.compare(Op.LESS_THAN_OR_EQ, pushUpKey)) ? page : rightPage;
 	}
 
 	/**
@@ -384,40 +405,48 @@ public class BTreeFile implements DbFile {
 		// should be inserted.
 		// Create a new internal page
 		BTreeInternalPage rightPage = (BTreeInternalPage) getEmptyPage(tid, dirtypages, BTreePageId.INTERNAL);
-		int numEntries = page.getNumEntries();
-		Iterator<BTreeEntry> it = page.iterator();
+
+		// Split entries: left gets entries before splitPoint, right gets after
 		List<BTreeEntry> entries = new ArrayList<>();
-		while (it.hasNext()) {
-			entries.add(it.next());
-		}
-		int middleIndex = numEntries / 2;
-		BTreeEntry middleEntry = entries.get(middleIndex);
-		Field pushUpKey = middleEntry.getKey();
-		for (BTreeEntry e : entries) {
-			page.deleteKeyAndRightChild(e);
-		}
+		page.iterator().forEachRemaining(entries::add);
+		int splitPoint = entries.size() / 2;
+		BTreeEntry pushUpEntry = entries.get(splitPoint);
+
+		// Insert entries into left and right pages, skipping the middle entry
 		for (int i = 0; i < entries.size(); i++) {
-			BTreeEntry e = entries.get(i);
-			if (i < middleIndex) {
-				page.insertEntry(e);
-			} else if (i > middleIndex) {
-				rightPage.insertEntry(e);
+			BTreeEntry entry = entries.get(i);
+			page.deleteKeyAndRightChild(entry);
+			if (i < splitPoint) {
+				page.insertEntry(entry);
+			} else if (i > splitPoint) {
+				rightPage.insertEntry(entry);
 			}
 		}
+
+		// The rightPage's first entry's left child is the pushUpEntry's right child
+		BTreeEntry rightFirstEntry = rightPage.iterator().next();
+		rightFirstEntry.setLeftChild(pushUpEntry.getRightChild());
+		rightPage.updateEntry(rightFirstEntry);
+
+		// Update parent pointers for the right page's children
+		updateParentPointers(tid, dirtypages, rightPage);
+
+		// Update parent with the new entry
 		BTreeInternalPage parent = getParentWithEmptySlots(tid, dirtypages, page.getParentId(), field);
+		BTreeEntry newEntry = new BTreeEntry(pushUpEntry.getKey(), page.getId(), rightPage.getId());
+		parent.insertEntry(newEntry);
+
+		// Set parent pointers for both pages
 		page.setParentId(parent.getId());
 		rightPage.setParentId(parent.getId());
-		BTreeEntry newParentEntry = new BTreeEntry(pushUpKey, page.getId(), rightPage.getId());
-		parent.insertEntry(newParentEntry);
-		updateParentPointers(tid, dirtypages, rightPage);
+
+		// Add modified pages to dirtypages
 		dirtypages.put(page.getId(), page);
 		dirtypages.put(rightPage.getId(), rightPage);
 		dirtypages.put(parent.getId(), parent);
-		if (field.compare(Op.LESS_THAN_OR_EQ, pushUpKey)) {
-			return page;
-		} else {
-			return rightPage;
-		}
+		Database.getBufferPool().flushAllPages();
+		// Decide which page the new entry should go to
+		return (field.compare(Op.LESS_THAN_OR_EQ, pushUpEntry.getKey())) ? page : rightPage;
 	}
 
 	/**
