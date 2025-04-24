@@ -107,8 +107,8 @@ public class BufferPool {
                 for (TransactionId holderTID : holdersSet) {
                     deadLockChecker.removeWaiter(tid, holderTID);
                 }
-            } catch (TransactionAbortedException e) {
-                throw new TransactionAbortedException("get Page: transaction aborted due to deadlock check.");
+            } catch (Exception e) {
+                throw new TransactionAbortedException();
             }
 
             if (LRUList.contains(pid)) {
@@ -313,13 +313,14 @@ public class BufferPool {
     public synchronized void discardPage(PageId pid) {
         // some code goes here
         int ind = LRUList.indexOf(pid);
-        if (ind != -1) {
-            LRUList.remove(pid);
-            pagesList.remove(ind);
-        }
+
         Set<TransactionId> holders = lockManager.getLockHoldersTID(pid);
         for (TransactionId tid : holders) {
             unsafeReleasePage(tid, pid);
+        }
+        if (ind != -1) {
+            LRUList.remove(pid);
+            pagesList.remove(ind);
         }
         // not necessary for lab1
     }
@@ -350,7 +351,7 @@ public class BufferPool {
         // not necessary for lab1|lab2
         for (PageId pid : LRUList) {
             Page page = pagesList.get(LRUList.indexOf(pid));
-            if (page.isDirty() != null && page.isDirty().equals(tid)) {
+            if (tid.equals(page.isDirty())) {
                 flushPage(pid);
             }
         }
@@ -376,6 +377,16 @@ public class BufferPool {
                 }
             }
         }
+        // for (int i = 0; i < LRUList.size(); i++) {
+        //     PageId pid = LRUList.get(i);
+        //     try {
+        //         discardPage(pid);
+        //         flushPage(pid);
+        //         return;
+        //     } catch (IOException e) {
+        //         System.err.println("IOException in evictPage (dirty path) of BufferPool: " + e);
+        //     }
+        // }
         throw new DbException("No clean pages");
     }
 }

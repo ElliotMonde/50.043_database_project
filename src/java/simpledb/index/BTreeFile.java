@@ -281,10 +281,7 @@ public class BTreeFile implements DbFile {
             newPage.insertTuple(tp);
             numTuples--;
         }
-		
-        if (!iter.hasNext()) {
-            throw new DbException("No more tuples.");
-        }
+
         // If there is a right neighbor, update its pointer
         if (page.getRightSiblingId() != null) {
             BTreePageId oldRightId = page.getRightSiblingId();
@@ -296,10 +293,6 @@ public class BTreeFile implements DbFile {
         newPage.setRightSiblingId(page.getRightSiblingId());
         page.setRightSiblingId(newPage.getId());
 
-        if (!iter.hasNext()) {
-            throw new DbException("No more tuples.");
-        }
-
 		Field fieldInd = newPage.iterator().next().getField(keyField); // leftmost tuple key to push up
 		BTreeEntry entry = new BTreeEntry(fieldInd, page.getId(), newPage.getId());
 		BTreeInternalPage parentPage = getParentWithEmptySlots(tid, dirtypages, page.getParentId(), fieldInd);
@@ -309,7 +302,16 @@ public class BTreeFile implements DbFile {
 		updateParentPointer(tid, dirtypages, parentPage.getId(), page.getId());
         updateParentPointer(tid, dirtypages, parentPage.getId(), newPage.getId());
 
-        return field.compare(Op.GREATER_THAN_OR_EQ, fieldInd) ? newPage : page;
+
+        dirtypages.put(page.getId(), page);
+        dirtypages.put(newPage.getId(), newPage);
+        dirtypages.put(parentPage.getId(), parentPage);
+
+        if (field.compare(Op.LESS_THAN, fieldInd)) {
+            return page;
+        } else {
+            return newPage;
+        }
     }
 
     /**
@@ -350,22 +352,48 @@ public class BTreeFile implements DbFile {
         // will be useful here.  Return the page into which an entry with the given key field
 		// should be inserted.
 
-		int numEntries = page.getNumEntries() / 2;
-        Iterator<BTreeEntry> iter = page.reverseIterator();
+		// int numEntries = page.getNumEntries() / 2;
+        // Iterator<BTreeEntry> iter = page.reverseIterator();
+        // BTreeInternalPage newPage = (BTreeInternalPage) getEmptyPage(tid, dirtypages, BTreePageId.INTERNAL);
+
+        // while (numEntries > 0 && iter.hasNext()) {
+        //     BTreeEntry e = iter.next();
+        //     page.deleteKeyAndRightChild(e);
+		// 	newPage.insertEntry(e);
+        //     numEntries--;
+        // }
+		// if (!iter.hasNext()){
+		// 	throw new DbException("No more tuples in BInternalPage iter.");
+		// }
+
+		// BTreeEntry midEntry = iter.next(); // middle entry key to push up
+        // page.deleteKeyAndRightChild(midEntry);
+        
+        List<BTreeEntry> allEntries = new ArrayList<>();
+        Iterator<BTreeEntry> iter = page.iterator();
+        while (iter.hasNext()) {
+            allEntries.add(iter.next());
+        }
+
+        // Step 2: Determine midpoint
+        int midIndex = allEntries.size() / 2;
+        BTreeEntry midEntry = allEntries.get(midIndex);
+
+        // Step 3: Clear the current page
+        for (BTreeEntry entry : allEntries) {
+            page.deleteKeyAndRightChild(entry);
+        }
+
+        // Step 4: Create a new page
         BTreeInternalPage newPage = (BTreeInternalPage) getEmptyPage(tid, dirtypages, BTreePageId.INTERNAL);
 
-        while (numEntries > 0 && iter.hasNext()) {
-            BTreeEntry e = iter.next();
-            page.deleteKeyAndRightChild(e);
-			newPage.insertEntry(e);
-            numEntries--;
+        // Step 5: Redistribute entries
+        for (int i = midIndex + 1; i < allEntries.size(); i++) {
+            newPage.insertEntry(allEntries.get(i));
         }
-		if (!iter.hasNext()){
-			throw new DbException("No more tuples in BInternalPage iter.");
-		}
-
-		BTreeEntry midEntry = iter.next(); // middle entry key to push up
-		page.deleteKeyAndRightChild(midEntry);
+        for (int i = 0; i < midIndex; i++) {
+            page.insertEntry(allEntries.get(i));
+        }
 
 		Field splitKeyField = midEntry.getKey();
 
@@ -376,7 +404,16 @@ public class BTreeFile implements DbFile {
         updateParentPointers(tid, dirtypages, parent);
 		updateParentPointers(tid, dirtypages, page);
 		updateParentPointers(tid, dirtypages, newPage);
-		return field.compare(Op.GREATER_THAN_OR_EQ, splitKeyField) ? newPage : page;
+		
+        dirtypages.put(page.getId(), page);
+        dirtypages.put(newPage.getId(), newPage);
+        dirtypages.put(parent.getId(), parent);
+
+        if (field.compare(Op.LESS_THAN, splitKeyField)) {
+            return page;
+        } else {
+            return newPage;
+        }
     }
 
     /**
