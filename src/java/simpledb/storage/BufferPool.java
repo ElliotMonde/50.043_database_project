@@ -107,8 +107,8 @@ public class BufferPool {
                 for (TransactionId holderTID : holdersSet) {
                     deadLockChecker.removeWaiter(tid, holderTID);
                 }
-            } catch (Exception e) {
-                throw new TransactionAbortedException();
+            } catch (TransactionAbortedException e) {
+                throw new TransactionAbortedException("get Page: transaction aborted due to deadlock check.");
             }
 
             if (LRUList.contains(pid)) {
@@ -376,16 +376,6 @@ public class BufferPool {
                 }
             }
         }
-        for (int i = 0; i < LRUList.size(); i++) {
-            PageId pid = LRUList.get(i);
-            try {
-                flushPage(pid);
-                discardPage(pid);
-                return;
-            } catch (IOException e) {
-                System.err.println("IOException in evictPage (dirty path) of BufferPool: " + e);
-            }
-        }
         throw new DbException("No clean pages");
     }
 }
@@ -411,7 +401,7 @@ class DeadLockChecker {
             if (holdersSet.isEmpty()) {
                 waitForGraph.remove(waiter);
             } else {
-                waitForGraph.put(holder, holdersSet);
+                waitForGraph.put(waiter, holdersSet);
             }
         }
     }
@@ -423,7 +413,7 @@ class DeadLockChecker {
 
         ArrayList<TransactionId> visitedList = new ArrayList<>();
         visitedList.add(tid);
-        HashSet<TransactionId> holdersSet = lockManager.getLockHoldersTID(pid);
+        HashSet<TransactionId> holdersSet = new HashSet<>(lockManager.getLockHoldersTID(pid));
         holdersSet.remove(tid);
         for (TransactionId holderTID : holdersSet) {
             if (checkWaiting(new HashMap<>(waitForGraph),holderTID, new ArrayList<>(visitedList))) {
