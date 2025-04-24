@@ -372,7 +372,7 @@ public class BTreeFile implements DbFile {
 		BTreeEntry parentEntry = new BTreeEntry(splitKeyField, page.getId(), newPage.getId());
 		BTreeInternalPage parent = getParentWithEmptySlots(tid, dirtypages, page.getParentId(), splitKeyField); // get page's parent to insert key in
 		parent.insertEntry(parentEntry);
-
+		updateParentPointers(tid, dirtypages, page);
 		updateParentPointers(tid, dirtypages, parent);
 		updateParentPointers(tid, dirtypages, newPage);
 		return field.compare(Op.GREATER_THAN_OR_EQ, splitKeyField) ? newPage : page;
