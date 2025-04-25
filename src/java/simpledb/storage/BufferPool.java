@@ -377,16 +377,16 @@ public class BufferPool {
                 }
             }
         }
-        // for (int i = 0; i < LRUList.size(); i++) {
-        //     PageId pid = LRUList.get(i);
-        //     try {
-        //         discardPage(pid);
-        //         flushPage(pid);
-        //         return;
-        //     } catch (IOException e) {
-        //         System.err.println("IOException in evictPage (dirty path) of BufferPool: " + e);
-        //     }
-        // }
+        for (int i = 0; i < LRUList.size(); i++) {
+            PageId pid = LRUList.get(i);
+            try {
+                discardPage(pid);
+                flushPage(pid);
+                return;
+            } catch (IOException e) {
+                System.err.println("IOException in evictPage (dirty path) of BufferPool: " + e);
+            }
+        }
         throw new DbException("No clean pages");
     }
 }
