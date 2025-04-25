@@ -138,7 +138,7 @@ public class BufferPool {
      * @param tid the ID of the transaction requesting the unlock
      * @param pid the ID of the page to unlock
      */
-    public void unsafeReleasePage(TransactionId tid, PageId pid) {
+    public synchronized void unsafeReleasePage(TransactionId tid, PageId pid) {
         // some code goes here
         // not necessary for lab1|lab2
 
@@ -152,7 +152,7 @@ public class BufferPool {
      * @param tid the ID of the transaction requesting the unlock Should ALWAYS
      * commit, can just call trnsactionComplete(true)
      */
-    public void transactionComplete(TransactionId tid) {
+    public synchronized void transactionComplete(TransactionId tid) {
         // some code goes here
         // not necessary for lab1|lab2
         transactionComplete(tid, true);
@@ -174,7 +174,7 @@ public class BufferPool {
      * @param tid the ID of the transaction requesting the unlock
      * @param commit a flag indicating whether we should commit or abort
      */
-    public void transactionComplete(TransactionId tid, boolean commit) {
+    public synchronized void transactionComplete(TransactionId tid, boolean commit) {
         // some code goes here
         // not necessary for lab1|lab2
 
@@ -220,7 +220,7 @@ public class BufferPool {
      * @param tableId the table to add the tuple to
      * @param t the tuple to add
      */
-    public void insertTuple(TransactionId tid, int tableId, Tuple t)
+    public synchronized void insertTuple(TransactionId tid, int tableId, Tuple t)
             throws DbException, IOException, TransactionAbortedException {
         DbFile f = Database.getCatalog().getDatabaseFile(tableId);
         List<Page> dirtiedPages = f.insertTuple(tid, t);
@@ -238,7 +238,7 @@ public class BufferPool {
      *
      * @param p the page to put into bufferpool
      */
-    public void putPage(Page p) throws DbException {
+    public synchronized void putPage(Page p) throws DbException {
         PageId pid = p.getId();
         for (int i = 0; i < LRUList.size(); i++) {
             if (LRUList.get(i).equals(pid)) { // if page is in bufferpool, remove it and add the dirtied/updated one to
@@ -294,12 +294,16 @@ public class BufferPool {
     public synchronized void flushAllPages() throws IOException {
         // some code goes here
         // not necessary for lab1
-        for (Page p : pagesList) {
-            if (p.isDirty() != null) {
-                flushPage(p.getId());
+        for (PageId pid : LRUList) {
+            int ind = LRUList.indexOf(pid);
+            if (ind != -1 && ind < pagesList.size()) {
+                for (Page p : pagesList) {
+                    if (p.isDirty() != null) {
+                        flushPage(p.getId());
+                    }
+                }
             }
         }
-
     }
 
     /**
@@ -318,7 +322,7 @@ public class BufferPool {
         for (TransactionId tid : holders) {
             unsafeReleasePage(tid, pid);
         }
-        if (ind != -1) {
+        if (ind != -1 && ind < pagesList.size()) {
             LRUList.remove(pid);
             pagesList.remove(ind);
         }
@@ -427,7 +431,7 @@ class DeadLockChecker {
         HashSet<TransactionId> holdersSet = new HashSet<>(lockManager.getLockHoldersTID(pid));
         holdersSet.remove(tid);
         for (TransactionId holderTID : holdersSet) {
-            if (checkWaiting(new HashMap<>(waitForGraph),holderTID, new ArrayList<>(visitedList))) {
+            if (checkWaiting(new HashMap<>(waitForGraph), holderTID, new ArrayList<>(visitedList))) {
                 return true;
             }
         }
